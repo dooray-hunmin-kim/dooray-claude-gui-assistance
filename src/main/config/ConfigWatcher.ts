@@ -16,7 +16,8 @@ export class ConfigWatcher {
     const claudeDir = join(homedir(), '.claude')
     const watchPaths = [
       join(claudeDir, 'settings.json'),
-      join(claudeDir, 'commands')
+      join(claudeDir, 'commands'),
+      join(claudeDir, 'skills')
     ]
 
     this.watcher = chokidar.watch(watchPaths, {

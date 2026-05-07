@@ -10,6 +10,12 @@ export const IPC_CHANNELS = {
   SKILLS_READ: 'skills:read',
   SKILLS_SAVE: 'skills:save',
   SKILLS_DELETE: 'skills:delete',
+  /** 다중 import — 파일 선택 다이얼로그를 열고 선택된 .md 들을 모두 저장 */
+  SKILLS_IMPORT: 'skills:import',
+  /** 다중 export — 폴더 선택 다이얼로그를 열고 지정 스킬들을 그 폴더에 .md 로 내보냄 */
+  SKILLS_EXPORT: 'skills:export',
+  /** 다중 삭제 */
+  SKILLS_DELETE_MANY: 'skills:delete-many',
 
   // Usage
   USAGE_QUERY: 'usage:query',
@@ -25,6 +31,13 @@ export const IPC_CHANNELS = {
   DOORAY_TASKS_LIST: 'dooray:tasks:list',
   DOORAY_TASKS_CC: 'dooray:tasks:cc',
   DOORAY_TASKS_UPDATE: 'dooray:tasks:update',
+  /** 사용자 지정 위키 페이지를 parent 로 쓰는 채널 */
+  DOORAY_WIKI_STORAGE_LIST: 'dooray:wiki:storage:list',
+  DOORAY_WIKI_STORAGE_GET: 'dooray:wiki:storage:get',
+  DOORAY_WIKI_STORAGE_UPLOAD: 'dooray:wiki:storage:upload',
+  DOORAY_WIKI_STORAGE_SOFT_DELETE: 'dooray:wiki:storage:soft-delete',
+  /** 두레이 위키 URL → wikiId / pageId / 이름 추출 */
+  DOORAY_WIKI_STORAGE_RESOLVE: 'dooray:wiki:storage:resolve',
   DOORAY_WIKI_LIST: 'dooray:wiki:list',
   DOORAY_WIKI_CHILDREN: 'dooray:wiki:children',
   DOORAY_WIKI_GET: 'dooray:wiki:get',
@@ -45,6 +58,8 @@ export const IPC_CHANNELS = {
   DOORAY_TASK_COMMENT_DELETE: 'dooray:task:comment:delete',
   DOORAY_TASK_TEMPLATES_LIST: 'dooray:task:templates:list',
   DOORAY_TASK_TEMPLATE_DETAIL: 'dooray:task:templates:detail',
+  /** 프로젝트에 정의된 태그 목록 — 빠른 태스크 생성 시 태그 선택용 */
+  DOORAY_PROJECT_TAGS_LIST: 'dooray:project:tags:list',
   DOORAY_COMMUNITY_POSTS: 'dooray:community:posts',
   DOORAY_MESSENGER_CHANNELS: 'dooray:messenger:channels',
   DOORAY_MESSENGER_SEND: 'dooray:messenger:send',

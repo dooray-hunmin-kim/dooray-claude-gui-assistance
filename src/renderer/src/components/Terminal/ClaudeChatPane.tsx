@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Send, Square, Sparkles, Wrench, RotateCcw, FolderOpen, History, Server, X, Check, AlertCircle, Paperclip, Image as ImageIcon, Cpu, TerminalSquare } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -47,6 +47,44 @@ function ClaudeChatPane({ isActive, cwd, chatId, initialSessionId, hideHistoryBu
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  /** 사용자가 위로 스크롤해서 최신 출력 follow 를 일시 중단했는지. true 면 자동 스크롤 안 함. */
+  const stickToBottomRef = useRef(true)
+
+  // Slash command palette — 입력이 "/..." 으로 시작하면 보유 스킬 목록을 띄워 선택해 본문 삽입.
+  const [skillList, setSkillList] = useState<Array<{ name: string; filename: string; content: string }>>([])
+  const [paletteIndex, setPaletteIndex] = useState(0)
+  useEffect(() => {
+    window.api.skills.list().then((list) => setSkillList(list || [])).catch(() => setSkillList([]))
+  }, [])
+  const slashQuery = useMemo<string | null>(() => {
+    // 입력이 "/" 한 글자로 시작하고 첫 줄에 공백이 없을 때만 활성. (멀티라인 메시지 중간엔 비활성)
+    const firstLine = input.split('\n')[0]
+    const m = firstLine.match(/^\/([^\s]*)$/)
+    return m && firstLine === input ? m[1] : null
+  }, [input])
+  const paletteSkills = useMemo(() => {
+    if (slashQuery === null) return []
+    const q = slashQuery.toLowerCase()
+    return q
+      ? skillList.filter((s) => s.name.toLowerCase().includes(q) || s.filename.toLowerCase().includes(q))
+      : skillList
+  }, [slashQuery, skillList])
+  const paletteOpen = slashQuery !== null && paletteSkills.length > 0
+  useEffect(() => { setPaletteIndex(0) }, [slashQuery])
+
+  const insertSkill = useCallback((skill: { name: string; filename: string }): void => {
+    // Claude Code 가 스킬을 인지하도록 슬래시 커맨드 텍스트만 삽입. md 본문은 넣지 않음.
+    // 사용자가 그 뒤에 이어서 자연어를 추가로 적을 수 있게 trailing space 1개.
+    const cmd = `/${skill.name} `
+    setInput(cmd)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (el) {
+        el.focus()
+        el.setSelectionRange(el.value.length, el.value.length)
+      }
+    })
+  }, [])
 
   // 컴포넌트 언마운트 시 backend long-running process 정리
   useEffect(() => {
@@ -107,12 +145,21 @@ function ClaudeChatPane({ isActive, cwd, chatId, initialSessionId, hideHistoryBu
     return unsub
   }, [chatId])
 
-  // 자동 스크롤
+  // 자동 스크롤 — 사용자가 바닥 근처에 있을 때만 follow.
+  // Why: 스트리밍 중 위쪽 내용을 읽고 있을 때 강제로 끌려가는 문제 방지.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    const el = scrollRef.current
+    if (el && stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight
     }
   }, [messages])
+
+  // 스크롤 위치 추적: 바닥에서 64px 이내면 follow 유지, 벗어나면 해제.
+  const handleTranscriptScroll = useCallback((e: React.UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 64
+  }, [])
 
   /** 파일을 첨부 목록에 추가. File 객체가 디스크 path 를 가지면 그대로, 아니면 disk 에 저장 후 path 획득. */
   const addAttachment = useCallback(async (file: File): Promise<void> => {
@@ -274,7 +321,7 @@ function ClaudeChatPane({ isActive, cwd, chatId, initialSessionId, hideHistoryBu
       )}
 
       {/* Transcript */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={handleTranscriptScroll} className="flex-1 overflow-y-auto">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-text-tertiary">
             <Sparkles size={36} className="text-clover-orange/60" />
@@ -339,12 +386,73 @@ function ClaudeChatPane({ isActive, cwd, chatId, initialSessionId, hideHistoryBu
             ))}
           </div>
         )}
-        <div className="w-full flex items-center gap-2">
+        <div className="w-full flex items-center gap-2 relative">
+          {/* Slash 명령 팔레트 — 보유 스킬을 / 로 검색해 본문에 삽입 */}
+          {paletteOpen && (
+            <div
+              className="absolute left-0 right-12 bottom-full mb-1 z-30 rounded-lg border border-bg-border shadow-2xl overflow-hidden"
+              style={{ background: 'var(--bg-surface-raised)', maxHeight: 280 }}
+            >
+              <div className="px-3 py-1.5 text-[10px] text-text-tertiary border-b border-bg-border bg-bg-subtle flex items-center justify-between">
+                <span>스킬 — ↑↓ 이동, Enter 삽입, Esc 취소</span>
+                <span>{paletteSkills.length}개</span>
+              </div>
+              <div className="overflow-y-auto" style={{ maxHeight: 240 }}>
+                {paletteSkills.map((s, i) => {
+                  const isHi = i === paletteIndex
+                  return (
+                  <div
+                    key={s.filename}
+                    ref={(el) => { if (isHi && el) el.scrollIntoView({ block: 'nearest' }) }}
+                    onMouseEnter={() => setPaletteIndex(i)}
+                    // Why: mousedown 이 textarea blur 를 일으켜 화살표 키 입력이 안 잡힐 수 있음.
+                    // mousedown 의 기본 동작(focus 이동)을 막아 textarea 포커스 유지.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => insertSkill(s)}
+                    className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer border-l-2 transition-colors ${
+                      isHi
+                        ? 'bg-clover-orange/15 border-l-clover-orange'
+                        : 'border-l-transparent hover:bg-bg-surface-hover'
+                    }`}
+                  >
+                    <Sparkles size={11} className={`flex-none ${isHi ? 'text-clover-orange' : 'text-clover-blue'}`} />
+                    <span className={`text-[12px] truncate ${isHi ? 'text-text-primary font-semibold' : 'text-text-primary'}`}>{s.name}</span>
+                    <span className="text-[10px] text-text-tertiary font-mono truncate flex-1 text-right">{s.filename}</span>
+                  </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
+              // Palette 가 열려있을 때 — 방향키/Esc 는 IME 합성 여부와 무관 (한글 조합과
+              // 화살표는 충돌 안 함). Enter 만 IME 합성 중이면 IME 한테 양보.
+              if (paletteOpen) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setPaletteIndex((i) => Math.min(i + 1, paletteSkills.length - 1))
+                  return
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setPaletteIndex((i) => Math.max(i - 1, 0))
+                  return
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  setInput('')
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  insertSkill(paletteSkills[paletteIndex])
+                  return
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 send()

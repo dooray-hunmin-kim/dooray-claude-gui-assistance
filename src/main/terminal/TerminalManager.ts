@@ -15,6 +15,35 @@ interface PtySession {
 const MAX_BUFFER_LINES = 5000
 
 /**
+ * 앱 재시작 후 복원 시 터미널이 깨져 보이는 문제 방지용 sanitizer.
+ *
+ * Why: pty 의 raw 출력에는 (a) TUI 앱(vim/htop/claude TUI)이 alternate screen
+ * 으로 들어갔다 나오면서 누적한 화면 redraw, (b) 청크 경계에서 끊긴 미완성
+ * ANSI escape sequence 가 섞여있다. 그대로 xterm.write 하면 화면이 난잡하다.
+ *
+ * 전략:
+ *  1) alternate-screen exit (`\x1b[?1049l` / `?47l` / `?1047l`) 이 있으면 마지막
+ *     exit 이후 출력만 남긴다 — TUI 가 끝난 시점 이후의 정상 셸 출력만 복원.
+ *  2) 끝부분이 미완성 ESC 시퀀스로 잘렸으면 그 부분만 잘라낸다.
+ */
+function sanitizeForRestore(raw: string): string {
+  const altExit = /\x1b\[\?(?:1049|47|1047)l/g
+  let lastEnd = -1
+  let m: RegExpExecArray | null
+  while ((m = altExit.exec(raw)) !== null) lastEnd = m.index + m[0].length
+  let out = lastEnd >= 0 ? raw.slice(lastEnd) : raw
+
+  const lastEsc = out.lastIndexOf('\x1b')
+  if (lastEsc >= 0) {
+    const trail = out.slice(lastEsc)
+    // 정상 종결: CSI/SGR 등은 `@`-`~` (0x40-0x7E) 로 끝, OSC 는 BEL(\x07) 또는 ST 로 끝.
+    const finalized = /[\x40-\x7E]/.test(trail.slice(2)) || trail.includes('\x07')
+    if (!finalized) out = out.slice(0, lastEsc)
+  }
+  return out
+}
+
+/**
  * PTY에 전달할 PATH 보강.
  * Electron 패키징 앱은 GUI에서 실행되기 때문에 부모 프로세스의 PATH가
  * 로그인 셸 환경과 다르다. .zshrc/.zprofile이 정상적으로 실행되지 않을 때를
@@ -42,7 +71,10 @@ function enrichedTerminalPath(): string {
         join(home, '.nvm', 'versions', 'node', 'current', 'bin'),
       ]
   const currentPath = process.env.PATH || (isWindows ? '' : '/usr/bin:/bin')
-  return [...extraPaths, currentPath].join(pathDelimiter)
+  // 사용자 PATH 우선, extraPaths 는 fallback. PTY 안에서 .zshrc 가 다시 실행되면 사용자 PATH 가
+  // 한 번 더 갱신되니, 우리가 prepend 해서 사용자가 의도하지 않은 구버전 바이너리를 가리는 일이
+  // 없게 한다.
+  return [currentPath, ...extraPaths].join(pathDelimiter)
 }
 
 export class TerminalManager {
@@ -159,7 +191,7 @@ export class TerminalManager {
   exportSessions(): Array<{ meta: TerminalSession; output: string }> {
     return Array.from(this.sessions.values()).map((s) => ({
       meta: s.meta,
-      output: s.outputBuffer.join('')
+      output: sanitizeForRestore(s.outputBuffer.join(''))
     }))
   }
 

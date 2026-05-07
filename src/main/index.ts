@@ -9,6 +9,8 @@ import { UsageParser } from './usage/UsageParser'
 import { DoorayClient } from './dooray/DoorayClient'
 import { TaskService } from './dooray/TaskService'
 import { WikiService } from './dooray/WikiService'
+import { WikiStorageService } from './dooray/WikiStorageService'
+import type { WikiStorageKind } from './dooray/WikiStorageService'
 import { CalendarService } from './dooray/CalendarService'
 import { MessengerService } from './dooray/MessengerService'
 import { BotService } from './dooray/socket-mode/BotService'
@@ -53,6 +55,13 @@ const usageParser = new UsageParser()
 const doorayClient = new DoorayClient()
 const taskService = new TaskService(doorayClient)
 const wikiService = new WikiService(doorayClient)
+// store 초기화는 아래에서 하지만, lambda 들이 method 호출 시점에 평가되므로 문제 없음.
+// (단, 첫 IPC 호출 전에 store 가 반드시 초기화되어 있어야 함.)
+const wikiStorage = new WikiStorageService(wikiService, {
+  get: (k) => store.get(k) as string | undefined,
+  set: (k, v) => store.set(k, v),
+  delete: (k) => store.delete(k)
+})
 const sharedSkills = new SharedSkillsService(wikiService, skillsManager, {
   wikiId: SHARED_SKILL_WIKI_ID,
   parentPageId: SHARED_SKILL_PARENT_PAGE_ID
@@ -383,6 +392,13 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SKILLS_DELETE, (_, filename: string) =>
     skillsManager.delete(filename)
   )
+  ipcMain.handle(IPC_CHANNELS.SKILLS_DELETE_MANY, (_, filenames: string[]) =>
+    skillsManager.deleteMany(filenames)
+  )
+  ipcMain.handle(IPC_CHANNELS.SKILLS_IMPORT, () => skillsManager.importFromFiles())
+  ipcMain.handle(IPC_CHANNELS.SKILLS_EXPORT, (_, filenames: string[]) =>
+    skillsManager.exportToFolder(filenames)
+  )
 
   // Usage (5분 캐시)
   const usageCache: Record<string, { data: unknown; timestamp: number }> = {}
@@ -423,8 +439,12 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(
     IPC_CHANNELS.DOORAY_TASK_CREATE,
-    (_, params: { projectId: string; subject: string; body: string; assigneeIds?: string[] }) =>
+    (_, params: { projectId: string; subject: string; body: string; assigneeIds?: string[]; tagIds?: string[] }) =>
       taskService.createTask(params)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.DOORAY_PROJECT_TAGS_LIST,
+    (_, projectId: string) => taskService.listProjectTags(projectId)
   )
   // 커뮤니티: 댓글 생성
   ipcMain.handle(
@@ -590,6 +610,31 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.DOORAY_WIKI_UPDATE, (_, params: DoorayWikiUpdateParams) =>
     wikiService.update(params)
+  )
+  // 나만의 위키 저장소 — 스킬/MCP 보관용 (사용자가 입력한 위키 페이지 URL 하위에 컨테이너 생성)
+  ipcMain.handle(
+    IPC_CHANNELS.DOORAY_WIKI_STORAGE_LIST,
+    (_, { wikiId, kind, parentPageIdHint }: { wikiId: string; kind: WikiStorageKind; parentPageIdHint?: string }) =>
+      wikiStorage.list(wikiId, kind, parentPageIdHint)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.DOORAY_WIKI_STORAGE_GET,
+    (_, { wikiId, pageId }: { wikiId: string; pageId: string }) =>
+      wikiStorage.get(wikiId, pageId)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.DOORAY_WIKI_STORAGE_UPLOAD,
+    (_, params: { wikiId: string; kind: WikiStorageKind; name: string; content: string; parentPageIdHint?: string }) =>
+      wikiStorage.upload(params)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.DOORAY_WIKI_STORAGE_SOFT_DELETE,
+    (_, { wikiId, pageId }: { wikiId: string; pageId: string }) =>
+      wikiStorage.softDelete(wikiId, pageId)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.DOORAY_WIKI_STORAGE_RESOLVE,
+    (_, input: string) => wikiStorage.resolveWikiId(input)
   )
   ipcMain.handle(IPC_CHANNELS.DOORAY_CALENDAR_LIST, () => calendarService.listCalendars())
   ipcMain.handle(IPC_CHANNELS.DOORAY_CALENDAR_EVENTS, (_, params: DoorayCalendarQueryParams) =>
@@ -1164,7 +1209,8 @@ ${data}`,
     const extraPaths = isWin
       ? [join(home, '.claude', 'local'), join(home, '.claude', 'bin'), join(home, 'AppData', 'Roaming', 'npm'), join(home, 'AppData', 'Local', 'npm')]
       : [join(home, '.claude', 'local'), join(home, '.claude', 'bin'), '/usr/local/bin', '/opt/homebrew/bin', join(home, '.local', 'bin')]
-    const richEnv = { ...process.env, PATH: [...extraPaths, process.env.PATH || ''].join(pathDelim), DISABLE_OMC: '1' }
+    // 사용자 PATH 우선 — extraPaths 는 fallback (구버전 claude 가 우리 prepend 로 잡히는 문제 방지)
+    const richEnv = { ...process.env, PATH: [process.env.PATH || '', ...extraPaths].join(pathDelim), DISABLE_OMC: '1' }
     const run = (args: string[]): Promise<string> => new Promise((resolve) => {
       execFile('claude', args, { timeout: 5000, env: richEnv }, (err: Error | null, stdout: string, stderr: string) => {
         resolve(stdout || stderr || (err?.message ?? ''))

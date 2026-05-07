@@ -15,6 +15,7 @@ module.exports = {
           primary: 'var(--bg-primary)',
           surface: 'var(--bg-surface)',
           'surface-hover': 'var(--bg-surface-hover)',
+          subtle: 'var(--bg-subtle)',
           border: 'var(--bg-border)',
           'border-light': 'var(--bg-border-light)'
         },

@@ -1,7 +1,8 @@
 import { readFile, writeFile, readdir, unlink, mkdir } from 'fs/promises'
 import { existsSync, statSync, lstatSync } from 'fs'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { homedir } from 'os'
+import { dialog } from 'electron'
 import type { Skill, SkillSaveRequest } from '../../shared/types/skills'
 
 export class SkillsManager {
@@ -68,5 +69,59 @@ export class SkillsManager {
     if (existsSync(skillFile)) {
       await unlink(skillFile)
     }
+  }
+
+  /** 다중 삭제 — 실패는 항목별로 무시(베스트 에포트). 삭제 성공 갯수 반환. */
+  async deleteMany(filenames: string[]): Promise<{ deleted: number }> {
+    let deleted = 0
+    for (const filename of filenames) {
+      try { await this.delete(filename); deleted++ } catch { /* skip */ }
+    }
+    return { deleted }
+  }
+
+  /** 사용자가 선택한 .md 파일들을 임포트. 파일명 기준으로 디렉토리를 만들어 SKILL.md 로 저장. */
+  async importFromFiles(): Promise<{ imported: number; cancelled: boolean }> {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile', 'multiSelections'],
+      title: '스킬 가져오기 (.md 파일 다중 선택)',
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { imported: 0, cancelled: true }
+    }
+    let imported = 0
+    for (const path of result.filePaths) {
+      try {
+        const content = await readFile(path, 'utf-8')
+        // 디렉토리 이름은 파일명에서 확장자만 제거. SKILL.md 로 저장.
+        const base = basename(path).replace(/\.(md|markdown)$/i, '')
+        await this.save({ filename: base, content })
+        imported++
+      } catch { /* skip unreadable */ }
+    }
+    return { imported, cancelled: false }
+  }
+
+  /** 지정한 스킬들을 사용자 선택 폴더에 .md 로 내보냄. 디렉토리/SKILL.md 가 아닌 평탄한 형태. */
+  async exportToFolder(filenames: string[]): Promise<{ exported: number; cancelled: boolean; folder?: string }> {
+    if (filenames.length === 0) return { exported: 0, cancelled: true }
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: '스킬 내보낼 폴더 선택'
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { exported: 0, cancelled: true }
+    }
+    const folder = result.filePaths[0]
+    let exported = 0
+    for (const filename of filenames) {
+      try {
+        const content = await this.read(filename)
+        await writeFile(join(folder, `${filename}.md`), content, 'utf-8')
+        exported++
+      } catch { /* skip */ }
+    }
+    return { exported, cancelled: false, folder }
   }
 }

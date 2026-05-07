@@ -67,7 +67,13 @@ const api = {
     save: (req: SkillSaveRequest): Promise<void> =>
       ipcRenderer.invoke(IPC_CHANNELS.SKILLS_SAVE, req),
     delete: (filename: string): Promise<void> =>
-      ipcRenderer.invoke(IPC_CHANNELS.SKILLS_DELETE, filename)
+      ipcRenderer.invoke(IPC_CHANNELS.SKILLS_DELETE, filename),
+    deleteMany: (filenames: string[]): Promise<{ deleted: number }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SKILLS_DELETE_MANY, filenames),
+    importFromFiles: (): Promise<{ imported: number; cancelled: boolean }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SKILLS_IMPORT),
+    exportToFolder: (filenames: string[]): Promise<{ exported: number; cancelled: boolean; folder?: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.SKILLS_EXPORT, filenames)
   },
 
   // Shared Skills (Dooray 위키 하위 페이지 기반 공유소)
@@ -135,8 +141,11 @@ const api = {
         return () => ipcRenderer.removeListener(IPC_CHANNELS.DOORAY_TASKS_PARTIAL, handler)
       },
       /** 태스크 생성 (커뮤니티 글쓰기) */
-      create: (params: { projectId: string; subject: string; body: string; assigneeIds?: string[] }): Promise<{ id: string }> =>
+      create: (params: { projectId: string; subject: string; body: string; assigneeIds?: string[]; tagIds?: string[] }): Promise<{ id: string }> =>
         ipcRenderer.invoke(IPC_CHANNELS.DOORAY_TASK_CREATE, params),
+      /** 프로젝트 태그 목록 (빠른 태스크 생성 시 태그 선택용) */
+      tags: (projectId: string): Promise<Array<{ id: string; name: string; color: string }>> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_PROJECT_TAGS_LIST, projectId),
       /** 프로젝트 태스크 템플릿 목록 */
       templates: (projectId: string): Promise<Array<{ id: string; name: string }>> =>
         ipcRenderer.invoke(IPC_CHANNELS.DOORAY_TASK_TEMPLATES_LIST, projectId),
@@ -172,7 +181,19 @@ const api = {
       get: (projectId: string, pageId: string): Promise<DoorayWikiPage> =>
         ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_GET, { projectId, pageId }),
       update: (params: DoorayWikiUpdateParams): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_UPDATE, params)
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_UPDATE, params),
+      /** 나만의 위키 저장소 — 등록한 위키의 root 하위(level 2)에 컨테이너 생성. parentPageIdHint 가 있으면 자동 탐색 우회. */
+      storageList: (wikiId: string, kind: 'skills' | 'mcps', parentPageIdHint?: string): Promise<Array<{ pageId: string; name: string; content: string; updatedAt: number }>> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_STORAGE_LIST, { wikiId, kind, parentPageIdHint }),
+      storageGet: (wikiId: string, pageId: string): Promise<{ name: string; content: string }> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_STORAGE_GET, { wikiId, pageId }),
+      storageUpload: (params: { wikiId: string; kind: 'skills' | 'mcps'; name: string; content: string; parentPageIdHint?: string }): Promise<{ pageId: string; updated: boolean }> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_STORAGE_UPLOAD, params),
+      storageSoftDelete: (wikiId: string, pageId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_STORAGE_SOFT_DELETE, { wikiId, pageId }),
+      /** 위키 URL 또는 wikiId → wikiId + wikiName + (URL 에 있으면) parentPageId */
+      storageResolve: (input: string): Promise<{ wikiId: string; wikiName: string; parentPageId?: string }> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DOORAY_WIKI_STORAGE_RESOLVE, input)
     },
     calendar: {
       list: (): Promise<Array<{ id: string; name: string; type: string }>> =>

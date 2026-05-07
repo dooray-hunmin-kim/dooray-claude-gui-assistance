@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, Save, Sparkles, Search, X, Download, Upload, User, Loader2, RefreshCw } from 'lucide-react'
+import { Plus, Save, Sparkles, Search, X, Download, Upload, User, Loader2, RefreshCw, Trash2, CheckSquare, Square } from 'lucide-react'
 import SkillCard from './SkillCard'
 import SharedSkillCard from './SharedSkillCard'
 import SkillEditor from './SkillEditor'
@@ -8,7 +8,12 @@ import type { Skill } from '../../../../shared/types/skills'
 import type { SharedSkill } from '../../../../shared/types/shared-skills'
 import { Button, Modal, SegTabs, useToast } from '../common/ds'
 
-type FilterTab = 'mine' | 'shared'
+import { DEFAULT_WIKIS } from '../../../../shared/wiki-storage-defaults'
+import WikiStoragePicker from '../common/WikiStoragePicker'
+
+type FilterTab = 'mine' | 'wiki'
+
+interface WikiStorageEntry { pageId: string; name: string; content: string; updatedAt: number }
 
 function SkillsManager(): JSX.Element {
   const toast = useToast()
@@ -19,6 +24,16 @@ function SkillsManager(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<FilterTab>('mine')
+
+  // 다중 선택 (내 스킬 탭 한정)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  // 내 위키 저장소 — 사용자가 등록한 위키 목록 + 활성 위키 선택.
+  const [registeredWikis, setRegisteredWikis] = useState<Array<{ wikiId: string; wikiName: string; parentPageId?: string }>>([])
+  const [activeWikiId, setActiveWikiId] = useState<string>('')
+  const [wikiItems, setWikiItems] = useState<WikiStorageEntry[]>([])
+  const [wikiLoading, setWikiLoading] = useState(false)
 
   // 공유소 상태
   const [sharedSkills, setSharedSkills] = useState<SharedSkill[]>([])
@@ -59,9 +74,159 @@ function SkillsManager(): JSX.Element {
     return cleanup
   }, [loadSkills])
 
+  // 등록된 위키 목록 + 활성 위키 로드. 비어있으면 Clauday 기본값 자동 주입.
   useEffect(() => {
-    if (tab === 'shared' && sharedSkills.length === 0) loadSharedSkills()
-  }, [tab, sharedSkills.length, loadSharedSkills])
+    Promise.all([
+      window.api.settings.get('skillWikiStorageWikis'),
+      window.api.settings.get('skillWikiStorageActive')
+    ]).then(([listRaw, activeRaw]) => {
+      let list: Array<{ wikiId: string; wikiName: string }> = []
+      if (typeof listRaw === 'string') {
+        try { list = JSON.parse(listRaw) } catch { list = [] }
+      } else if (Array.isArray(listRaw)) {
+        list = listRaw as Array<{ wikiId: string; wikiName: string }>
+      }
+      // Clauday 등 기본 위키가 목록에 없으면 추가 (사용자가 명시적으로 제거한 경우는 다시 안 들어옴 — 빈 배열일 때만 채움).
+      if (list.length === 0) {
+        list = [...DEFAULT_WIKIS]
+        window.api.settings.set('skillWikiStorageWikis', JSON.stringify(list)).catch(() => { /* ok */ })
+      }
+      setRegisteredWikis(list)
+      if (typeof activeRaw === 'string' && list.some((w) => w.wikiId === activeRaw)) {
+        setActiveWikiId(activeRaw)
+      } else if (list.length > 0) {
+        setActiveWikiId(list[0].wikiId)
+        window.api.settings.set('skillWikiStorageActive', list[0].wikiId).catch(() => { /* ok */ })
+      }
+    }).catch(() => { /* ok */ })
+  }, [])
+
+  const persistWikis = async (list: Array<{ wikiId: string; wikiName: string }>, active: string): Promise<void> => {
+    await Promise.all([
+      window.api.settings.set('skillWikiStorageWikis', JSON.stringify(list)),
+      window.api.settings.set('skillWikiStorageActive', active)
+    ]).catch(() => { /* ok */ })
+  }
+
+  const loadWikiItems = useCallback(async (): Promise<void> => {
+    if (!activeWikiId) { setWikiItems([]); return }
+    setWikiLoading(true)
+    try {
+      const target = registeredWikis.find((w) => w.wikiId === activeWikiId)
+      const list = await window.api.dooray.wiki.storageList(activeWikiId, 'skills', target?.parentPageId)
+      setWikiItems(list)
+    } catch (err) {
+      console.error('[Skills] storageList failed:', err)
+      toast.error(err instanceof Error ? err.message : '위키 저장소 로드 실패')
+    } finally {
+      setWikiLoading(false)
+    }
+  }, [activeWikiId, registeredWikis, toast])
+
+  useEffect(() => {
+    if (tab === 'wiki' && activeWikiId) loadWikiItems()
+  }, [tab, activeWikiId, loadWikiItems])
+
+  /** picker 가 호출하는 통합 변경 핸들러 — 추가/제거 모두 처리. */
+  const handleWikiListChange = async (next: Array<{ wikiId: string; wikiName: string }>): Promise<void> => {
+    setRegisteredWikis(next)
+    // 활성 위키가 빠졌으면 첫 항목으로 이동
+    let newActive = activeWikiId
+    if (!next.some((w) => w.wikiId === activeWikiId)) {
+      newActive = next.length > 0 ? next[0].wikiId : ''
+      setActiveWikiId(newActive)
+      if (!newActive) setWikiItems([])
+    }
+    await persistWikis(next, newActive)
+  }
+
+  const switchActiveWiki = async (wikiId: string): Promise<void> => {
+    setActiveWikiId(wikiId)
+    await window.api.settings.set('skillWikiStorageActive', wikiId).catch(() => { /* ok */ })
+  }
+
+  /** 공유 위키 타겟 picker — 등록 위키 2개 이상일 때 노출 */
+  const [shareTargetPicker, setShareTargetPicker] = useState<{ skills: Skill[] } | null>(null)
+  // ESC 로 picker 닫기
+  useEffect(() => {
+    if (!shareTargetPicker) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setShareTargetPicker(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [shareTargetPicker])
+
+  /** 업로드 진행 상태 — null 이면 idle, 객체면 진행 중 */
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; wikiName: string; currentName: string } | null>(null)
+
+  const uploadSkillsToWiki = async (skillsToUpload: Skill[], wikiId: string): Promise<void> => {
+    const target = registeredWikis.find((w) => w.wikiId === wikiId)
+    const wikiLabel = target?.wikiName || wikiId
+    let okCount = 0
+    let failCount = 0
+    for (let i = 0; i < skillsToUpload.length; i++) {
+      const skill = skillsToUpload[i]
+      setUploadProgress({ current: i + 1, total: skillsToUpload.length, wikiName: wikiLabel, currentName: skill.name })
+      try {
+        await window.api.dooray.wiki.storageUpload({
+          wikiId, kind: 'skills', name: skill.name, content: skill.content,
+          parentPageIdHint: target?.parentPageId
+        })
+        okCount++
+      } catch (err) {
+        failCount++
+        console.error('[Skills] upload failed:', skill.name, err)
+      }
+    }
+    setUploadProgress(null)
+    if (okCount > 0) {
+      toast.success(`${okCount}개 ${wikiLabel} 에 업로드됨`)
+      if (tab === 'wiki' && wikiId === activeWikiId) await loadWikiItems()
+    }
+    if (failCount > 0) toast.error(`${failCount}개 업로드 실패`)
+  }
+
+  const handleShareToWiki = async (skillsToUpload: Skill[]): Promise<void> => {
+    if (registeredWikis.length === 0) {
+      toast.warn('등록된 위키가 없습니다', "'공유' 탭에서 먼저 위키를 등록하세요")
+      return
+    }
+    if (registeredWikis.length === 1) {
+      await uploadSkillsToWiki(skillsToUpload, registeredWikis[0].wikiId)
+    } else {
+      setShareTargetPicker({ skills: skillsToUpload })
+    }
+  }
+
+  const handleUploadToWiki = (skill: Skill): Promise<void> => handleShareToWiki([skill])
+
+  const handleDownloadFromWiki = async (item: WikiStorageEntry): Promise<void> => {
+    if (!activeWikiId) return
+    try {
+      let content = item.content
+      if (!content) {
+        const full = await window.api.dooray.wiki.storageGet(activeWikiId, item.pageId)
+        content = full.content
+      }
+      await window.api.skills.save({ filename: item.name, content })
+      toast.success(`"${item.name}" 내려받음`)
+      await loadSkills()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '내려받기 실패')
+    }
+  }
+
+  const handleDeleteFromWiki = async (item: WikiStorageEntry): Promise<void> => {
+    if (!activeWikiId) return
+    const ok = window.confirm(`위키 저장소에서 "${item.name}" 을(를) 삭제할까요? (페이지 제목 앞에 [DELETED] 표시)`)
+    if (!ok) return
+    try {
+      await window.api.dooray.wiki.storageSoftDelete(activeWikiId, item.pageId)
+      toast.success('삭제됨')
+      await loadWikiItems()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '삭제 실패')
+    }
+  }
 
   const handleOpen = (skill: Skill): void => {
     setActiveSkill(skill)
@@ -81,6 +246,12 @@ function SkillsManager(): JSX.Element {
     setActiveSkill(skill)
     setEditorContent(skill.content)
     setIsDirty(false)
+    // Optimistic: 새 스킬을 목록에 즉시 반영 — fs 동기화 지연으로 list() 가 빈 결과를 반환해도
+    // 사용자가 방금 추가한 스킬이 사라지지 않도록 보장.
+    setSkills((prev) => {
+      const exists = prev.some((s) => s.filename === skill.filename)
+      return exists ? prev : [...prev, skill].sort((a, b) => a.name.localeCompare(b.name))
+    })
     await loadSkills()
   }
 
@@ -134,7 +305,6 @@ function SkillsManager(): JSX.Element {
         content: skill.content
       })
       toast.success(`"${skill.name}" 공유소에 업로드 완료`)
-      setTab('shared')
       loadSharedSkills()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '업로드 실패 — 두레이 로그인 상태를 확인하세요')
@@ -215,47 +385,247 @@ function SkillsManager(): JSX.Element {
     setIsDirty(true)
   }
 
+  const toggleSelected = (filename: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(filename)) next.delete(filename)
+      else next.add(filename)
+      return next
+    })
+  }
+
+  const exitSelectMode = (): void => {
+    setSelectMode(false)
+    setSelected(new Set())
+  }
+
+  const handleBulkDelete = async (): Promise<void> => {
+    if (selected.size === 0) return
+    const ok = window.confirm(`선택한 ${selected.size}개 스킬을 삭제할까요?\n복구할 수 없습니다.`)
+    if (!ok) return
+    try {
+      const res = await window.api.skills.deleteMany(Array.from(selected))
+      toast.success(`${res.deleted}개 삭제됨`)
+      exitSelectMode()
+      await loadSkills()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '삭제 실패')
+    }
+  }
+
+  const handleBulkExport = async (): Promise<void> => {
+    if (selected.size === 0) return
+    try {
+      const res = await window.api.skills.exportToFolder(Array.from(selected))
+      if (res.cancelled) return
+      toast.success(`${res.exported}개 내보냄`, res.folder || '')
+      exitSelectMode()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '내보내기 실패')
+    }
+  }
+
+  const handleBulkShare = async (): Promise<void> => {
+    if (selected.size === 0) return
+    const targets = filteredSkills.filter((s) => selected.has(s.filename))
+    await handleShareToWiki(targets)
+    exitSelectMode()
+  }
+
+  const handleBulkDownloadFromWiki = async (): Promise<void> => {
+    if (selected.size === 0 || !activeWikiId) return
+    const targets = wikiItems.filter((it) => selected.has(it.pageId))
+    let okCount = 0
+    let failCount = 0
+    for (const item of targets) {
+      try {
+        let content = item.content
+        if (!content) {
+          const full = await window.api.dooray.wiki.storageGet(activeWikiId, item.pageId)
+          content = full.content
+        }
+        await window.api.skills.save({ filename: item.name, content })
+        okCount++
+      } catch (err) {
+        failCount++
+        console.error('[Skills] bulk download failed:', item.name, err)
+      }
+    }
+    if (okCount > 0) toast.success(`${okCount}개 내려받음`)
+    if (failCount > 0) toast.error(`${failCount}개 실패`)
+    exitSelectMode()
+    await loadSkills()
+  }
+
+  const handleBulkDeleteFromWiki = async (): Promise<void> => {
+    if (selected.size === 0 || !activeWikiId) return
+    const targets = wikiItems.filter((it) => selected.has(it.pageId))
+    if (!window.confirm(`선택한 ${targets.length}개를 위키에서 삭제할까요?`)) return
+    let okCount = 0
+    let failCount = 0
+    for (const item of targets) {
+      try {
+        await window.api.dooray.wiki.storageSoftDelete(activeWikiId, item.pageId)
+        okCount++
+      } catch (err) {
+        failCount++
+        console.error('[Skills] bulk delete failed:', item.name, err)
+      }
+    }
+    if (okCount > 0) toast.success(`${okCount}개 삭제됨`)
+    if (failCount > 0) toast.error(`${failCount}개 실패 (본인 페이지가 아닐 수 있음)`)
+    exitSelectMode()
+    await loadWikiItems()
+  }
+
+  const handleImport = async (): Promise<void> => {
+    try {
+      const res = await window.api.skills.importFromFiles()
+      if (res.cancelled) return
+      if (res.imported === 0) {
+        toast.warn('가져온 파일이 없습니다')
+        return
+      }
+      toast.success(`${res.imported}개 가져옴`)
+      await loadSkills()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '가져오기 실패')
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto">
+      {uploadProgress && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-2 rounded-lg shadow-2xl border border-clover-blue/40"
+          style={{ background: 'var(--bg-surface-raised)' }}>
+          <Loader2 size={14} className="animate-spin text-clover-blue" />
+          <div className="flex flex-col">
+            <span className="text-[12px] text-text-primary font-medium">
+              {uploadProgress.wikiName} 에 업로드 중 ({uploadProgress.current}/{uploadProgress.total})
+            </span>
+            <span className="text-[10px] text-text-tertiary truncate max-w-[260px]">{uploadProgress.currentName}</span>
+          </div>
+        </div>
+      )}
       <div className="px-5 py-4 space-y-3">
         {/* PageHeader */}
         <div className="flex items-center gap-3 flex-wrap">
           <Sparkles size={18} className="text-clover-blue" />
           <h2 className="text-[14px] font-semibold text-text-primary">Claude 스킬</h2>
           <span className="ds-chip neutral">
-            {tab === 'mine' ? `${skills.length}개` : `${sharedSkills.length}개 공유됨`}
+            {tab === 'mine' ? `${skills.length}개` : `${wikiItems.length}개 공유됨`}
           </span>
-          <div className="flex-1" />
           <SegTabs<FilterTab>
             value={tab}
-            onChange={setTab}
+            onChange={(t) => { setTab(t); exitSelectMode() }}
             items={[
               { key: 'mine', label: '내 스킬' },
-              { key: 'shared', label: '공유' }
+              { key: 'wiki', label: '공유' }
             ]}
           />
-          {tab === 'mine' && (
-            <Button variant="primary" onClick={() => setCreating(true)} leftIcon={<Plus size={13} />}>
-              스킬 추가
-            </Button>
+          {tab === 'wiki' && (
+            <WikiStoragePicker
+              registered={registeredWikis}
+              lockedIds={DEFAULT_WIKIS.map((w) => w.wikiId)}
+              activeWikiId={activeWikiId}
+              onChange={handleWikiListChange}
+              onActiveChange={switchActiveWiki}
+            />
           )}
-          {tab === 'shared' && (
-            <Button variant="primary" onClick={loadSharedSkills} disabled={sharedLoading}
-              leftIcon={<RefreshCw size={12} className={sharedLoading ? 'animate-spin' : ''} />}>
-              새로고침
-            </Button>
+          <div className="flex-1" />
+          {tab === 'mine' && (
+            <>
+              <Button variant="secondary" onClick={() => loadSkills()} leftIcon={<RefreshCw size={13} />}>
+                새로고침
+              </Button>
+              <Button
+                variant={selectMode ? 'orange' : 'secondary'}
+                onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                leftIcon={selectMode ? <X size={13} /> : <CheckSquare size={13} />}
+              >
+                {selectMode ? '선택 종료' : '선택'}
+              </Button>
+              <Button variant="secondary" onClick={handleImport} leftIcon={<Upload size={13} />}>
+                가져오기
+              </Button>
+              <Button variant="primary" onClick={() => setCreating(true)} leftIcon={<Plus size={13} />}>
+                스킬 추가
+              </Button>
+            </>
+          )}
+          {tab === 'wiki' && activeWikiId && (
+            <>
+              <Button variant="secondary" onClick={() => loadWikiItems()} disabled={wikiLoading}
+                leftIcon={<RefreshCw size={12} className={wikiLoading ? 'animate-spin' : ''} />}>
+                새로고침
+              </Button>
+              <Button
+                variant={selectMode ? 'orange' : 'secondary'}
+                onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                leftIcon={selectMode ? <X size={13} /> : <CheckSquare size={13} />}
+              >
+                {selectMode ? '선택 종료' : '선택'}
+              </Button>
+            </>
           )}
         </div>
 
+        {/* 다중 선택 액션바 — mine / wiki 탭 별도 액션 */}
+        {selectMode && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-clover-orange/8 border border-clover-orange/30">
+            <span className="text-xs text-text-primary font-medium">{selected.size}개 선택됨</span>
+            <button
+              type="button"
+              onClick={() => {
+                const all = tab === 'mine' ? filteredSkills.map((s) => s.filename) : wikiItems.map((i) => i.pageId)
+                if (selected.size === all.length) setSelected(new Set())
+                else setSelected(new Set(all))
+              }}
+              className="text-[11px] text-clover-orange hover:underline"
+            >
+              {(() => {
+                const all = tab === 'mine' ? filteredSkills.length : wikiItems.length
+                return selected.size === all && all > 0 ? '전체 해제' : '전체 선택'
+              })()}
+            </button>
+            <div className="flex-1" />
+            {tab === 'mine' && (
+              <>
+                {registeredWikis.length > 0 && (
+                  <Button variant="primary" onClick={handleBulkShare} disabled={selected.size === 0} leftIcon={<Upload size={13} />}>
+                    공유에 올리기
+                  </Button>
+                )}
+                <Button variant="secondary" onClick={handleBulkExport} disabled={selected.size === 0} leftIcon={<Download size={13} />}>
+                  내보내기
+                </Button>
+                <Button variant="danger" onClick={handleBulkDelete} disabled={selected.size === 0} leftIcon={<Trash2 size={13} />}>
+                  삭제
+                </Button>
+              </>
+            )}
+            {tab === 'wiki' && (
+              <>
+                <Button variant="success" onClick={handleBulkDownloadFromWiki} disabled={selected.size === 0} leftIcon={<Download size={13} />}>
+                  내려받기
+                </Button>
+                <Button variant="danger" onClick={handleBulkDeleteFromWiki} disabled={selected.size === 0} leftIcon={<Trash2 size={13} />}>
+                  삭제
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Search */}
-        {(tab === 'mine' ? skills.length : sharedSkills.length) > 0 && (
+        {(tab === 'mine' ? skills.length : wikiItems.length) > 0 && (
           <div className="relative max-w-md">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tab === 'mine' ? '이름·내용 검색...' : '이름·작성자 검색...'}
+              placeholder={tab === 'mine' ? '이름·내용 검색...' : '이름 검색...'}
               className="ds-input sm"
               style={{ paddingLeft: 28, paddingRight: 28 }}
             />
@@ -291,38 +661,74 @@ function SkillsManager(): JSX.Element {
                   skill={skill}
                   uploading={uploadingSkill === skill.filename}
                   onOpen={() => handleOpen(skill)}
-                  onShare={() => handleShareUpload(skill)}
                   onDelete={() => handleDelete(skill)}
+                  onUploadToWiki={registeredWikis.length > 0 ? () => handleUploadToWiki(skill) : undefined}
+                  selectable={selectMode}
+                  selected={selected.has(skill.filename)}
+                  onToggleSelect={() => toggleSelected(skill.filename)}
                 />
               ))}
             </div>
           )
         ) : (
-          // Shared tab
-          sharedLoading ? (
+          // 공유 (위키 저장소) 탭
+          !activeWikiId ? (
+            <div className="py-16 text-center">
+              <Sparkles size={32} className="mx-auto text-text-tertiary mb-3" />
+              <p className="text-sm font-medium text-text-primary mb-1">위키를 등록하세요</p>
+              <p className="text-[11px] text-text-tertiary">상단 톱니바퀴 → 위키를 체크하거나 수동 추가로 등록하면, 해당 위키에서 공유 중인 스킬이 여기 표시됩니다</p>
+            </div>
+          ) : wikiLoading ? (
             <div className="py-12 text-center text-[12px] text-text-tertiary">공유 스킬 불러오는 중...</div>
-          ) : sharedSkills.length === 0 ? (
+          ) : wikiItems.length === 0 ? (
             <div className="py-16 text-center">
               <Upload size={32} className="mx-auto text-text-tertiary mb-3" />
-              <p className="text-sm font-medium text-text-primary mb-1">공유된 스킬이 없습니다</p>
-              <p className="text-[11px] text-text-tertiary">'내 스킬'에서 카드 메뉴 → '공유 업로드'로 첫 공유를 시작하세요</p>
-            </div>
-          ) : filteredShared.length === 0 ? (
-            <div className="py-12 text-center text-[12px] text-text-tertiary">
-              "{search}"에 일치하는 공유 스킬이 없습니다
+              <p className="text-sm font-medium text-text-primary mb-1">아직 공유된 스킬이 없습니다</p>
+              <p className="text-[11px] text-text-tertiary">'내 스킬' 탭에서 카드 메뉴 → '공유에 올리기'로 시작하세요</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredShared.map((shared) => (
-                <SharedSkillCard
-                  key={shared.postId}
-                  skill={shared}
-                  busy={sharedBusy === shared.postId}
-                  onOpen={() => handleOpenSharedPreview(shared)}
-                  onDownload={() => handleSharedDownload(shared)}
-                  onDelete={shared.isMine ? () => handleSharedDelete(shared) : undefined}
-                />
-              ))}
+              {wikiItems.map((item) => {
+                const isSelected = selectMode && selected.has(item.pageId)
+                return (
+                  <div
+                    key={item.pageId}
+                    onClick={selectMode ? () => toggleSelected(item.pageId) : undefined}
+                    className={`ds-card transition-all ${selectMode ? 'cursor-pointer' : ''}`}
+                    style={{
+                      padding: '12px 14px',
+                      ...(isSelected
+                        ? { boxShadow: '0 0 0 2px var(--accent-orange, #FB923C)', borderColor: 'var(--accent-orange, #FB923C)' }
+                        : {})
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-[6px] flex-none flex items-center justify-center bg-clover-blue/10">
+                        <Sparkles size={15} className="text-clover-blue" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-semibold text-text-primary truncate">{item.name}</div>
+                        <div className="text-[10px] text-text-tertiary mt-0.5">
+                          {item.updatedAt ? new Date(item.updatedAt).toLocaleString('ko-KR') : '날짜 없음'}
+                        </div>
+                      </div>
+                    </div>
+                    {!selectMode && (
+                      <div className="flex items-center gap-2 mt-2.5 pt-2 border-t border-bg-border/60">
+                        <div className="flex-1" />
+                        <button onClick={(e) => { e.stopPropagation(); handleDownloadFromWiki(item) }}
+                          className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-clover-blue">
+                          <Download size={11} /> 내려받기
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); handleDeleteFromWiki(item) }}
+                          className="flex items-center gap-1 text-[11px] text-text-secondary hover:text-red-400">
+                          <Trash2 size={11} /> 삭제
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )
         )}
@@ -412,6 +818,48 @@ function SkillsManager(): JSX.Element {
           )
         )}
       </Modal>
+
+      {/* 공유 위키 타겟 선택 — 등록 위키 2개 이상일 때 */}
+      {shareTargetPicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-6"
+          style={{ background: 'var(--overlay-bg, rgba(0,0,0,0.5))' }}
+          onClick={() => setShareTargetPicker(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-xl border border-bg-border shadow-2xl overflow-hidden"
+            style={{ background: 'var(--bg-surface-raised)' }}
+          >
+            <div className="px-4 py-3 border-b border-bg-border">
+              <div className="text-[13px] font-semibold text-text-primary">공유할 위키 선택</div>
+              <div className="text-[11px] text-text-tertiary mt-0.5">
+                {shareTargetPicker.skills.length}개 스킬을 어느 위키에 올릴까요?
+              </div>
+            </div>
+            <div className="py-1 max-h-80 overflow-y-auto">
+              {registeredWikis.map((w) => (
+                <button
+                  key={w.wikiId}
+                  onClick={async () => {
+                    const skillsToUpload = shareTargetPicker.skills
+                    setShareTargetPicker(null)
+                    await uploadSkillsToWiki(skillsToUpload, w.wikiId)
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-left text-[12px] text-text-secondary hover:bg-bg-surface-hover transition-colors"
+                  type="button"
+                >
+                  <Sparkles size={12} className="text-clover-blue" />
+                  <span className="flex-1">{w.wikiName || w.wikiId}</span>
+                </button>
+              ))}
+            </div>
+            <div className="px-4 py-2 border-t border-bg-border flex justify-end">
+              <Button variant="ghost" onClick={() => setShareTargetPicker(null)}>취소</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
