@@ -1,0 +1,212 @@
+import { WikiService } from './WikiService'
+
+export type WikiStorageKind = 'skills' | 'mcps'
+
+interface WikiStorageItem {
+  pageId: string
+  name: string
+  content: string
+  updatedAt: number
+}
+
+export interface ContainerStore {
+  get(key: string): string | undefined
+  set(key: string, value: string): void
+  delete(key: string): void
+}
+
+/**
+ * 사용자가 두레이 위키 URL 을 등록하면, 해당 위키 root 하위 (level 2) 에 컨테이너를 만들고
+ * 그 안에 스킬/MCP 정의 페이지를 둔다.
+ *
+ * 구조:
+ *   <wiki root (level 1, 위키와 같은 이름)>
+ *     └─ "Clauday Skills" / "Clauday MCPs"  ← 자동 생성, level 2
+ *          └─ 각 스킬/MCP 페이지 (level 3)
+ */
+export class WikiStorageService {
+  private static CONTAINER_TITLE: Record<WikiStorageKind, string> = {
+    skills: 'Clauday Skills',
+    mcps: 'Clauday MCPs'
+  }
+
+  constructor(private wiki: WikiService, private store: ContainerStore) {}
+
+  private storeKey(wikiId: string, kind: WikiStorageKind): string {
+    return `wikiStorageContainer:${kind}:${wikiId}`
+  }
+
+  /**
+   * 두레이 위키 URL → wikiId + wikiName + (URL 에 page id 가 있으면) parentPageId.
+   *
+   * Why: Dooray 의 위키 root page id 자동 탐색이 부정확해서 (getDetail 응답에 home id 없음 +
+   * wikiId-as-parent 도 404), 사용자가 붙여 넣은 URL 에 page id 가 같이 있으면 그걸 컨테이너의
+   * 부모로 활용해서 첫 업로드부터 동작하게 한다. 사용자 입장에선 그냥 URL 만 붙여넣으면 됨.
+   */
+  async resolveWikiId(input: string): Promise<{ wikiId: string; wikiName: string; parentPageId?: string }> {
+    const text = (input || '').trim()
+    if (!text) throw new Error('URL 또는 wikiId 를 입력하세요')
+
+    let wikiId = ''
+    let parentPageId: string | undefined
+    const pairMatch = text.match(/wiki\/(\d{6,})\/(\d{6,})/)
+    if (pairMatch) {
+      wikiId = pairMatch[1]
+      parentPageId = pairMatch[2]
+    } else {
+      const urlMatch = text.match(/wiki\/(\d{6,})/)
+      if (urlMatch) {
+        wikiId = urlMatch[1]
+      } else if (/^\d{6,}$/.test(text)) {
+        wikiId = text
+      } else {
+        throw new Error('인식할 수 없는 형식 — 두레이 위키 URL 또는 wikiId 를 입력해 주세요')
+      }
+    }
+
+    let wikiName = ''
+    try {
+      const detail = await this.wiki.getDetail(wikiId)
+      const v = detail['name'] ?? detail['subject']
+      if (typeof v === 'string') wikiName = v
+    } catch (err) {
+      throw new Error(`해당 위키에 접근하지 못했습니다: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
+    return parentPageId ? { wikiId, wikiName, parentPageId } : { wikiId, wikiName }
+  }
+
+  /**
+   * 위키 root (level 1) 페이지 ID 탐색.
+   * `GET /wiki/v1/wikis/{wikiId}/pages` 를 query param 없이 호출하면 top-level("Home") 이 반환된다.
+   * Dooray API quirk: parentPageId 없이 size/page 만 붙이면 400 이 떨어짐 — 그래서 query 를 통째로 비워야 함.
+   */
+  private async findRootPageId(wikiId: string): Promise<string | null> {
+    try {
+      const top = await this.wiki.getTopLevelPages(wikiId)
+      if (top.length === 0) return null
+      return top[0].id
+    } catch {
+      return null
+    }
+  }
+
+  /** 컨테이너 ID 만 조회 — 없으면 null. parentPageIdHint 가 있으면 자동 탐색 대신 그걸 root 로 사용. */
+  private async findContainerPageId(
+    wikiId: string,
+    kind: WikiStorageKind,
+    parentPageIdHint?: string
+  ): Promise<string | null> {
+    const key = this.storeKey(wikiId, kind)
+    const cached = this.store.get(key)
+    if (cached) return cached
+
+    const title = WikiStorageService.CONTAINER_TITLE[kind]
+    const rootPageId = parentPageIdHint || (await this.findRootPageId(wikiId))
+    if (!rootPageId) return null
+    try {
+      const siblings = await this.wiki.listSinglePage(wikiId, rootPageId, { subject: title })
+      const existing = siblings.find((p) => p.subject === title && !(p.subject || '').startsWith('[DELETED]'))
+      if (existing) {
+        this.store.set(key, existing.id)
+        return existing.id
+      }
+    } catch { /* ok */ }
+    return null
+  }
+
+  /** 컨테이너가 없으면 root(또는 hint) 하위에 생성. */
+  private async ensureContainerPageId(
+    wikiId: string,
+    kind: WikiStorageKind,
+    parentPageIdHint?: string
+  ): Promise<string> {
+    const found = await this.findContainerPageId(wikiId, kind, parentPageIdHint)
+    if (found) return found
+
+    const title = WikiStorageService.CONTAINER_TITLE[kind]
+    const body = kind === 'skills'
+      ? '# Clauday Skills\n\nClauday 가 자동 관리하는 스킬 저장소입니다. 하위 페이지가 각 스킬 정의입니다.\n'
+      : '# Clauday MCPs\n\nClauday 가 자동 관리하는 MCP 서버 정의 저장소입니다. 하위 페이지가 각 MCP 정의입니다.\n'
+
+    const rootPageId = parentPageIdHint || (await this.findRootPageId(wikiId))
+    if (!rootPageId) {
+      throw new Error(
+        '위키의 루트 페이지를 자동으로 찾지 못했습니다. 위키 추가 시 페이지 URL 형식 ' +
+        '(https://nhnent.dooray.com/project/wiki/{wikiId}/{pageId}) 으로 다시 입력해 주세요.'
+      )
+    }
+    const created = await this.wiki.create({ wikiId, parentPageId: rootPageId, subject: title, body })
+    this.store.set(this.storeKey(wikiId, kind), created.id)
+    return created.id
+  }
+
+  async list(wikiId: string, kind: WikiStorageKind, parentPageIdHint?: string): Promise<WikiStorageItem[]> {
+    const containerPageId = await this.findContainerPageId(wikiId, kind, parentPageIdHint)
+    if (!containerPageId) return []
+    let children
+    try {
+      children = await this.wiki.listSinglePage(wikiId, containerPageId, { size: 100 })
+    } catch {
+      this.store.delete(this.storeKey(wikiId, kind))
+      return []
+    }
+    return children
+      .filter((p) => !(p.subject || '').startsWith('[DELETED]'))
+      .map((p) => ({
+        pageId: p.id,
+        name: p.subject || '',
+        content: p.body || '',
+        updatedAt: p.updatedAt ? new Date(p.updatedAt).getTime() : 0
+      }))
+  }
+
+  async get(wikiId: string, pageId: string): Promise<{ name: string; content: string }> {
+    const page = await this.wiki.get(wikiId, pageId)
+    return { name: page.subject || '', content: page.body || '' }
+  }
+
+  async upload(params: { wikiId: string; kind: WikiStorageKind; name: string; content: string; parentPageIdHint?: string }): Promise<{ pageId: string; updated: boolean }> {
+    const containerPageId = await this.ensureContainerPageId(params.wikiId, params.kind, params.parentPageIdHint)
+    const children = await this.wiki.listSinglePage(params.wikiId, containerPageId, { subject: params.name })
+    const existing = children.find((p) => p.subject === params.name)
+    if (existing) {
+      await this.wiki.update({
+        projectId: params.wikiId,
+        pageId: existing.id,
+        title: params.name,
+        body: params.content
+      })
+      return { pageId: existing.id, updated: true }
+    }
+    const created = await this.wiki.create({
+      wikiId: params.wikiId,
+      parentPageId: containerPageId,
+      subject: params.name,
+      body: params.content
+    })
+    return { pageId: created.id, updated: false }
+  }
+
+  /**
+   * 위키 페이지 hard delete. Dooray 는 서버 사이드에서 작성자(또는 관리자)만 삭제 허용 — 권한 없으면 403.
+   * 405 (DELETE 미지원) 같은 케이스에는 [DELETED] 접두사 soft-delete 로 폴백.
+   * (메서드 이름은 backward-compat 으로 softDelete 유지.)
+   */
+  async softDelete(wikiId: string, pageId: string): Promise<void> {
+    try {
+      await this.wiki.deletePage(wikiId, pageId)
+      return
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('(403)') || msg.includes('(401)')) {
+        throw new Error('본인이 작성한 페이지만 삭제할 수 있습니다.')
+      }
+      // 그 외 (405 등) — soft delete fallback
+    }
+    const page = await this.wiki.get(wikiId, pageId)
+    const oldTitle = page.subject || ''
+    if (oldTitle.startsWith('[DELETED]')) return
+    await this.wiki.renameTitle(wikiId, pageId, `[DELETED] ${oldTitle}`)
+  }
+}

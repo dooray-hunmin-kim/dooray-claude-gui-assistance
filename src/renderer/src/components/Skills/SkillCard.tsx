@@ -1,4 +1,4 @@
-import { Sparkles, Play, MoreHorizontal, Pencil, Trash2, Upload, Loader2 } from 'lucide-react'
+import { Sparkles, Play, MoreHorizontal, Pencil, Trash2, Upload, Loader2, CheckSquare, Square, FolderUp } from 'lucide-react'
 import { useState } from 'react'
 import type { Skill } from '../../../../shared/types/skills'
 
@@ -10,6 +10,12 @@ interface SkillCardProps {
   onRun?: () => void
   onDelete: () => void
   onShare?: () => void
+  /** 위키 저장소에 올리기 — wikiId 가 설정된 경우만 호출자가 props 로 전달 */
+  onUploadToWiki?: () => void
+  /** 다중 선택 모드일 때 true. true 이면 onOpen 대신 onToggleSelect 가 클릭 동작이 됨. */
+  selectable?: boolean
+  selected?: boolean
+  onToggleSelect?: () => void
 }
 
 /** YAML frontmatter / 첫 단락에서 설명 추출 */
@@ -38,15 +44,27 @@ function formatRelative(ts: number): string {
   return new Date(ts).toLocaleDateString('ko-KR')
 }
 
-function SkillCard({ skill, uploading, onOpen, onRun, onDelete, onShare }: SkillCardProps): JSX.Element {
+function SkillCard({
+  skill, uploading, onOpen, onRun, onDelete, onShare, onUploadToWiki,
+  selectable, selected, onToggleSelect
+}: SkillCardProps): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const description = extractDescription(skill.content)
 
   return (
     <div
-      onClick={onOpen}
-      className="ds-card group cursor-pointer relative hover:border-clover-blue/40 transition-colors"
-      style={{ padding: '12px 14px' }}
+      onClick={selectable ? onToggleSelect : onOpen}
+      className={`ds-card group cursor-pointer relative transition-all ${
+        selectable
+          ? ''
+          : 'hover:border-clover-blue/40'
+      }`}
+      style={{
+        padding: '12px 14px',
+        ...(selectable && selected
+          ? { boxShadow: '0 0 0 2px var(--accent-orange, #FB923C)', borderColor: 'var(--accent-orange, #FB923C)' }
+          : {})
+      }}
     >
       {uploading && (
         <div className="absolute top-1.5 right-8 inline-flex items-center gap-1 h-5 px-1.5 rounded-[4px] text-[9px] font-semibold"
@@ -65,7 +83,7 @@ function SkillCard({ skill, uploading, onOpen, onRun, onDelete, onShare }: Skill
             <div className="text-[11px] text-text-secondary truncate mt-0.5">{description}</div>
           )}
         </div>
-        <div className="relative flex-none">
+        <div className={`relative flex-none ${selectable ? 'invisible' : ''}`}>
           <button
             onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v) }}
             className="ds-btn icon sm opacity-0 group-hover:opacity-100 transition-opacity"
@@ -87,6 +105,14 @@ function SkillCard({ skill, uploading, onOpen, onRun, onDelete, onShare }: Skill
                   >
                     {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                     {uploading ? '업로드 중...' : '공유 업로드'}
+                  </div>
+                )}
+                {onUploadToWiki && (
+                  <div
+                    className="ds-menu-item"
+                    onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onUploadToWiki() }}
+                  >
+                    <FolderUp size={12} /> 공유에 올리기
                   </div>
                 )}
                 <div className="ds-menu-item" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete() }}>

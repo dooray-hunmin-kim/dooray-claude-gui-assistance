@@ -32,13 +32,22 @@ function AIProgressIndicator({
   size = 'compact'
 }: Props): JSX.Element | null {
   const preRef = useRef<HTMLPreElement>(null)
+  /** 사용자가 위로 스크롤해 follow 를 해제했는지. */
+  const stickToBottomRef = useRef(true)
 
-  // 스트림 preview 자동 스크롤 (최신 출력 보이게)
+  // 스트림 preview 자동 스크롤 — 사용자가 바닥 근처에 있을 때만 follow.
   useEffect(() => {
-    if (preRef.current) {
-      preRef.current.scrollTop = preRef.current.scrollHeight
+    const el = preRef.current
+    if (el && stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight
     }
   }, [progress.streamedText])
+
+  const handleScroll = (e: React.UIEvent<HTMLPreElement>): void => {
+    const el = e.currentTarget
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = distanceFromBottom < 32
+  }
 
   if (progress.stage === 'idle' || progress.stage === 'done') return null
 
@@ -103,6 +112,7 @@ function AIProgressIndicator({
       {showStreamPreview && progress.streamedText && (
         <pre
           ref={preRef}
+          onScroll={handleScroll}
           className={`mt-3 text-text-secondary font-mono p-3 bg-bg-primary/60 rounded-lg border border-bg-border/50 whitespace-pre-wrap overflow-y-auto leading-relaxed ${
             isLarge ? 'text-[11px] max-h-80' : 'text-[10px] max-h-24'
           }`}

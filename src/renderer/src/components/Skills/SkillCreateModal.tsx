@@ -78,12 +78,17 @@ function SkillCreateModal({ onClose, onCreated }: Props): JSX.Element {
     }
   }
 
-  const handleSaveManual = (): void => {
+  const handleSaveManual = async (): Promise<void> => {
     if (!manualName.trim()) return
     const name = manualName.trim()
     const filename = `${slugify(name)}.md`
     const content = `---\nname: ${name}\ndescription: \n---\n\n# ${name}\n\n스킬 내용을 작성하세요.\n`
-    onCreated({ name, filename, content, updatedAt: Date.now() })
+    try {
+      await window.api.skills.save({ filename, content })
+      onCreated({ name, filename, content, updatedAt: Date.now() })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '저장 실패')
+    }
   }
 
   return (

@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.4.1] - 안정화 + UX 개선
+
+### 버그 수정
+- **터미널 stream 자동 스크롤** — 사용자가 위로 스크롤하면 follow 일시 중단, 바닥 근처에 있을 때만 자동 follow (`ClaudeChatPane`/`AIProgressIndicator`)
+- **빠른 두레이 태스크 생성** — 일부 프로젝트에서 태그 필수라 생성 실패하던 문제. `tagIdList` payload 지원 + 폼에 그룹별 태그 chip + AI 추천 추가. IPC 에러 메시지 래핑(`Error invoking remote method ...`) 제거하고 실제 메시지만 노출
+- **스킬 추가 후 즉시 동기화** — 수동 작성 모드에서 `skills.save()` IPC 호출 누락. ConfigWatcher 가 `~/.claude/skills/` 도 감시. 추가 후 optimistic add 로 fs flush 지연 보정
+- **다크모드 텍스트 안 보임** — `tailwind.config.js` 의 `bg.subtle` 매핑 누락. `subtle: 'var(--bg-subtle)'` 추가
+- **앱 재시작 후 터미널 깨짐** — alt-screen TUI 잔재 + 미완성 ANSI 시퀀스 트림(`sanitizeForRestore`) + 복원 시 `terminal.reset()` 선행 + `fit()` 와 동일 rAF 안에서 write 실행해 80×24 기본 grid 충돌 방지
+- **터미널 한글 IME 셀 폭 어긋남** — `@xterm/addon-unicode11` + `terminal.unicode.activeVersion = '11'` + 한글 폰트 fallback (Apple SD Gothic Neo / Malgun Gothic / Noto Sans Mono CJK KR)
+- **IME 합성 중 Shift+Enter desync** — `e.isComposing`/keyCode 229 가드 추가 (palette 화살표·Esc 는 가드 없이 동작)
+- **MCP 활성/비활성 토글이 cosmetic 이었던 문제** — Claude Code 가 `disabled` 필드를 무시했음. 비활성 시 `~/.claude.json` 의 `mcpServers` 에서 빼서 별도 키 `_claudayDisabledMcp` 로 이동
+- **위키 root 페이지 자동 탐색 실패** — `/wiki/v1/wikis/{wikiId}/pages` 를 query param 일절 없이 호출해야 top-level 페이지가 반환됨 (`size=100&page=0` 만 붙이면 400). `WikiService.getTopLevelPages()` 신설
+- **claude 바이너리 PATH 충돌 (배포 위험)** — 사용자 머신에 claude 가 여러 경로에 깔려있을 때 우리 PATH prepend 가 구버전을 잡아 `--include-hook-events` 미지원 에러 발생. `resolveClaudePath()` 가 `which/where` 로 항상 절대경로 반환, `enrichedClaudeEnv()` 의 PATH 순서를 prepend → append 로 변경 (사용자 PATH 우선)
+
+### 신규 기능
+- **빠른 두레이 태스크 — AI 태그 추천** — 제목·본문·AI 지시 + 가용 태그를 LLM 에 전달, 그룹별 1개 룰로 자동 선택
+- **자동 동기화 (대시보드)** — 1/5/15/30분 주기 선택 가능, 설정 영속화
+- **대시보드 반응형** — `grid-cols-2 sm:grid-cols-3 lg:grid-cols-5` + 헤더 wrap. `max-w-6xl` 제거
+- **캘린더 AI 일정분석 sticky 헤더** 제거
+- **스킬 마크다운 뷰어** — SkillEditor 에 편집/미리보기 토글
+- **스킬 + MCP 다중 선택** — 선택 모드 시 카드 클릭으로 toggle, 주황 ring 강조. 일괄 삭제 / 내보내기 / 공유 / (공유 탭) 내려받기. 다중 import 도 동시 지원
+- **세션 탐색기 슬래시 커맨드 팔레트** — `/` 입력 시 보유 스킬 목록, ↑↓ 탐색, Enter 로 `/{skillName}` 텍스트 삽입 (Claude Code 가 슬래시 커맨드로 인지)
+- **터미널 검색** (<kbd>Cmd</kbd>+<kbd>F</kbd>) — `@xterm/addon-search` 도입. 우상단 검색바 (Enter 다음, Shift+Enter 이전, Esc 닫기)
+- **터미널 세션 이름 영속화 보강** — restoreSaved 후 main 측 meta.name 에 즉시 push 해서 다음 종료에도 유지
+
+### 위키 저장소 (스킬 / MCP 공유) — 신규
+- 두레이 위키 URL을 등록하면 그 위키 root 하위(level 2) 에 `Clauday Skills` / `Clauday MCPs` 컨테이너 페이지가 자동 생성되고, 스킬·MCP 정의가 컨테이너 자식으로 저장됨
+- **여러 위키 등록 + 활성 전환** — 헤더의 picker 트리거 클릭 → 등록된 위키 목록 + `+` 로 추가/관리
+- **다중 선택 시 위키 타겟 선택 모달** — 등록된 위키가 2개 이상일 때 어디 올릴지 선택
+- **본인 작성 페이지만 hard delete** — 두레이 API 가 서버 사이드에서 강제. 권한 없는 페이지는 명확한 에러 ("본인이 작성한 페이지만 삭제할 수 있습니다")
+- **기본값으로 Clauday 위키** 자동 등록 (잠금 — 제거 불가)
+- 업로드 진행률 banner — `{wikiName} 에 업로드 중 (3/5)` + 현재 항목 이름
+
+### 기타
+- 스킬 페이지 3탭(내 스킬/공유/내 저장소) → 2탭(내 스킬/공유) 으로 정리. MCP 도 동일 구조 (`로컬 / 공유`)
+- 다중 선택 카드 강조: 체크박스 → 주황 outline (box-shadow ring) 으로 변경
+- ESC 로 picker / shareTarget 모달 닫기
+- 버튼 색상 다양화: 새로고침 secondary, 선택 활성 시 orange, 위키 추가 secondary, 공유에 올리기 primary 등 (`ai` 변형은 실제 AI 호출에만 한정)
+
 ## [Unreleased] - Design System v1 (feat/design-system 브랜치)
 
 Claude Design이 생성한 디자인 시스템을 실제 코드베이스에 점진 이식.

@@ -584,12 +584,19 @@ export class TaskService {
     return null
   }
 
+  /** 프로젝트 태그 목록 — 빠른 태스크 생성 폼에서 태그 선택할 때 사용. */
+  async listProjectTags(projectId: string): Promise<Array<{ id: string; name: string; color: string }>> {
+    const map = await this.loadTagInfo(projectId)
+    return Array.from(map.entries()).map(([id, v]) => ({ id, name: v.name, color: v.color }))
+  }
+
   /** 태스크(커뮤니티 게시글) 생성 */
   async createTask(params: {
     projectId: string
     subject: string
     body: string
     assigneeIds?: string[] // 기본: 자기 자신
+    tagIds?: string[]      // 일부 프로젝트는 태그 필수 — 호출자가 선택해 전달
   }): Promise<{ id: string }> {
     const myId = await this.getMyMemberId()
     const to = (params.assigneeIds && params.assigneeIds.length > 0
@@ -597,17 +604,19 @@ export class TaskService {
       : [myId]
     ).map((id) => ({ type: 'member' as const, member: { organizationMemberId: id } }))
 
+    const payload: Record<string, unknown> = {
+      subject: params.subject,
+      body: { mimeType: 'text/x-markdown', content: params.body },
+      dueDateFlag: false,
+      users: { to, cc: [] }
+    }
+    if (params.tagIds && params.tagIds.length > 0) {
+      payload.tagIdList = params.tagIds
+    }
+
     const res = await this.client.request<DoorayItemResponse<{ id: string }>>(
       `/project/v1/projects/${params.projectId}/posts`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          subject: params.subject,
-          body: { mimeType: 'text/x-markdown', content: params.body },
-          dueDateFlag: false,
-          users: { to, cc: [] }
-        })
-      }
+      { method: 'POST', body: JSON.stringify(payload) }
     )
     return { id: res.result.id }
   }

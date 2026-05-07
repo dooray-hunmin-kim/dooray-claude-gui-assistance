@@ -6,9 +6,13 @@ import { IPC_CHANNELS } from '../../shared/types/ipc'
 import type { ClaudeChatEvent, ClaudeChatSendRequest } from '../../shared/types/claude-chat'
 
 /**
- * Electron 패키징 앱은 GUI에서 실행되어 PATH가 부족하다.
- * claude CLI 내부 hook과 MCP 서버는 node를 호출하므로 PATH에 nvm/homebrew 경로를
- * 끼워 넣어 준다.
+ * Electron 패키징 앱은 GUI 에서 실행되어 PATH 가 부족하다 (.zshrc/.bashrc 미실행).
+ * claude CLI 내부 hook 과 MCP 서버는 node 를 호출하므로 PATH 에 nvm/homebrew 경로를 보강.
+ *
+ * Why extraPaths 를 **append** (뒤에 붙이기)?
+ *   여러 머신에서 claude / node 가 다양한 위치에 설치되어 있어, prepend 하면 우리 추가
+ *   경로의 구버전이 사용자 PATH 의 신버전을 가리는 문제가 발생. 사용자 PATH 가 우선이고
+ *   부족할 때만 우리 fallback 이 메우게 한다.
  */
 function enrichedClaudeEnv(): NodeJS.ProcessEnv {
   const home = homedir()
@@ -32,7 +36,7 @@ function enrichedClaudeEnv(): NodeJS.ProcessEnv {
   const currentPath = process.env.PATH || (isWindows ? '' : '/usr/bin:/bin')
   return {
     ...process.env,
-    PATH: [...extraPaths, currentPath].join(pathDelimiter),
+    PATH: [currentPath, ...extraPaths].join(pathDelimiter),
   }
 }
 

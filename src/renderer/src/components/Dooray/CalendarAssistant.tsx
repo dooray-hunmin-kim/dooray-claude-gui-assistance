@@ -278,7 +278,7 @@ function CalendarAssistant(): JSX.Element {
       {/* AI 분석 결과 */}
       {aiResult && (
         <div className="mx-6 mt-3 p-4 rounded-xl bg-gradient-to-r from-clover-orange/5 to-clover-blue/5 border border-clover-orange/20 flex-shrink-0 max-h-[50vh] overflow-y-auto">
-          <div className="flex items-center gap-1.5 mb-2 sticky top-0 bg-bg-primary/80 backdrop-blur-sm py-1">
+          <div className="flex items-center gap-1.5 mb-2 py-1">
             <Sparkles size={13} className="text-clover-orange" />
             <span className="text-xs font-semibold text-clover-orange">AI 일정 분석</span>
             <button onClick={() => setAiResult(null)} className="ml-auto text-[9px] text-text-tertiary hover:text-text-secondary">닫기</button>

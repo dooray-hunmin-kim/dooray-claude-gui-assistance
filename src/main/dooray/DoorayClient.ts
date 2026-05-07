@@ -118,8 +118,10 @@ export class DoorayClient {
             let errorMsg = `HTTP ${statusCode}`
             try {
               const errBody = JSON.parse(responseBody)
-              if (errBody.resultMessage) errorMsg = errBody.resultMessage
+              if (errBody.header?.resultMessage) errorMsg = errBody.header.resultMessage
+              else if (errBody.resultMessage) errorMsg = errBody.resultMessage
               else if (errBody.message) errorMsg = errBody.message
+              errorMsg = `${path} → ${errorMsg}`
             } catch { /* ignore */ }
             settle(() => reject(new Error(`Dooray API 오류 (${statusCode}): ${errorMsg}`)))
             return

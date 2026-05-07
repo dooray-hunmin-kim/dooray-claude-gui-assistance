@@ -25,8 +25,14 @@ function TerminalView(): JSX.Element {
       for (const s of limited) {
         try {
           const session = await window.api.terminal.create({ cwd: s.meta.cwd || undefined })
+          const restoredName = s.meta.name || '~'
+          // Why: 새로 만든 세션은 main 측에서 기본 이름을 갖는다. 사용자가 지정했던 이름을
+          // 다시 push 해서 다음 종료 시 exportSessions 가 제대로 된 이름을 저장하게 함.
+          if (restoredName) {
+            void window.api.terminal.rename(session.id, restoredName)
+          }
           setEntries((prev) => [...prev, {
-            session: { ...session, name: s.meta.name || '~' },
+            session: { ...session, name: restoredName },
             savedOutput: s.output
           }])
           setActiveId((prev) => prev || session.id)

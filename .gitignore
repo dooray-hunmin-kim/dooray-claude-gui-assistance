@@ -10,3 +10,5 @@ out
 release
 .omc
 .playwright-mcp
+.mockups
+.claude
