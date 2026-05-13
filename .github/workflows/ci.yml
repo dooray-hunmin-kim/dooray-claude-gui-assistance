@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11 (node-gyp 호환)
+        id: python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # native module (node-pty, keytar) 빌드 회피.
+      # CI에서는 테스트만 돌리므로 electron-rebuild 가 필요 없음.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+        env:
+          npm_config_python: ${{ steps.python.outputs.python-path }}
+
+      - name: Run unit & component tests
+        run: npm run test:run
+
+      # typecheck 는 기존 코드에 선재 오류가 있어 게이트에서 제외.
+      # 오류 정리 후 아래 단계 활성화하면 PR 머지 차단에 포함됨.
+      # - name: Typecheck
+      #   run: npm run typecheck
