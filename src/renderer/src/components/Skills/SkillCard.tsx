@@ -68,7 +68,7 @@ function SkillCard({
     >
       {uploading && (
         <div className="absolute top-1.5 right-8 inline-flex items-center gap-1 h-5 px-1.5 rounded-[4px] text-[9px] font-semibold"
-          style={{ background: 'rgba(234,88,12,0.15)', color: '#FB923C' }}>
+          style={{ background: 'var(--c-orange-bg)', color: 'var(--c-orange-fg)' }}>
           <Loader2 size={10} className="animate-spin" />
           업로드 중
         </div>

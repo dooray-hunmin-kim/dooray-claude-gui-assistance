@@ -503,7 +503,7 @@ const markdownComponents = {
       return (
         <code
           className="px-1 py-0.5 rounded font-mono text-[12px]"
-          style={{ background: 'rgba(0,0,0,0.25)', color: '#FB923C' }}
+          style={{ background: 'rgba(0,0,0,0.2)', color: 'var(--c-orange-fg)' }}
           {...props}
         >
           {children}
@@ -550,7 +550,7 @@ const markdownComponents = {
   h3: ({ children }: { children?: React.ReactNode }) => <h3 className="text-[13px] font-semibold mt-1.5 mb-1">{children}</h3>,
   p: ({ children }: { children?: React.ReactNode }) => <p className="my-0.5">{children}</p>,
   blockquote: ({ children }: { children?: React.ReactNode }) => (
-    <blockquote className="border-l-2 pl-3 my-1.5 italic" style={{ borderColor: 'rgba(251,146,60,0.5)', color: 'var(--text-secondary)' }}>
+    <blockquote className="border-l-2 pl-3 my-1.5 italic" style={{ borderColor: 'color-mix(in oklab, var(--c-orange-fg) 50%, transparent)', color: 'var(--text-secondary)' }}>
       {children}
     </blockquote>
   )
@@ -569,7 +569,7 @@ function MessageRow({ msg }: { msg: ChatMessage }): JSX.Element {
         <div
           className="max-w-[85%] px-3.5 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words"
           style={{
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+            background: 'var(--c-blue-solid)',
             color: '#fff',
             borderTopRightRadius: 4
           }}
@@ -588,7 +588,7 @@ function MessageRow({ msg }: { msg: ChatMessage }): JSX.Element {
         <div className="max-w-[85%] flex gap-2 items-start">
           <span
             className="inline-flex items-center gap-1 h-5 px-1.5 rounded-[4px] text-[10px] font-bold flex-none mt-1"
-            style={{ color: '#A78BFA', background: 'rgba(167,139,250,0.14)' }}
+            style={{ color: 'var(--c-violet-fg)', background: 'var(--c-violet-bg)' }}
           >
             <Wrench size={11} />
             TOOL
@@ -620,7 +620,7 @@ function MessageRow({ msg }: { msg: ChatMessage }): JSX.Element {
         className="inline-flex items-center justify-center w-7 h-7 rounded-full flex-none"
         style={{ background: 'linear-gradient(135deg, rgba(251,146,60,0.2), rgba(59,130,246,0.2))', border: '1px solid rgba(251,146,60,0.4)' }}
       >
-        <Sparkles size={13} style={{ color: '#FB923C' }} />
+        <Sparkles size={13} style={{ color: 'var(--c-orange-solid)' }} />
       </span>
       <div
         className={`max-w-[85%] px-3.5 py-2 rounded-2xl text-[13px] leading-relaxed break-words ${msg.isError ? 'text-red-400' : 'text-text-primary'}`}
@@ -839,7 +839,7 @@ function McpStatusButton({
 function CtxBadge({ tokens }: { tokens: number }): JSX.Element {
   const WINDOW = 200_000
   const pct = Math.min(100, Math.round((tokens / WINDOW) * 100))
-  const tone = pct >= 80 ? '#F87171' : pct >= 60 ? '#FB923C' : 'var(--text-tertiary)'
+  const tone = pct >= 80 ? 'var(--c-red-fg)' : pct >= 60 ? 'var(--c-orange-solid)' : 'var(--text-tertiary)'
   const label = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : `${tokens}`
   return (
     <span

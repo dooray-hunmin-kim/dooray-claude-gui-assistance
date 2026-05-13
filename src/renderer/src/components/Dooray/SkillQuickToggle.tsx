@@ -301,7 +301,7 @@ function SkillQuickToggle({ target, size = 'md', feature }: SkillQuickToggleProp
                   </div>
                   {mcpCount > 0 && (
                     <span className="text-[9.5px] px-1.5 py-0.5 rounded-full font-bold"
-                      style={{ background: 'rgba(59,130,246,0.2)', color: '#60A5FA', border: '1px solid rgba(59,130,246,0.4)' }}>
+                      style={{ background: 'var(--c-blue-bg)', color: 'var(--c-blue-fg)', border: '1px solid color-mix(in oklab, var(--c-blue-fg) 40%, transparent)' }}>
                       {mcpCount}개 선택됨
                     </span>
                   )}
@@ -324,10 +324,10 @@ function SkillQuickToggle({ target, size = 'md', feature }: SkillQuickToggleProp
                           onClick={() => toggleFeatureMcp(name)}
                           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95"
                           style={active ? {
-                            background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                            background: 'var(--c-blue-solid)',
                             color: '#fff',
-                            border: '1px solid #3B82F6',
-                            boxShadow: '0 1px 3px rgba(59,130,246,0.4)'
+                            border: '1px solid var(--c-blue-solid)',
+                            boxShadow: '0 1px 3px var(--c-blue-bg)'
                           } : {
                             background: 'var(--bg-surface)',
                             color: 'var(--text-primary)',
@@ -335,8 +335,8 @@ function SkillQuickToggle({ target, size = 'md', feature }: SkillQuickToggleProp
                           }}
                           onMouseEnter={(e) => {
                             if (!active) {
-                              e.currentTarget.style.borderColor = 'rgba(59,130,246,0.5)'
-                              e.currentTarget.style.background = 'rgba(59,130,246,0.08)'
+                              e.currentTarget.style.borderColor = 'color-mix(in oklab, var(--c-blue-fg) 50%, transparent)'
+                              e.currentTarget.style.background = 'var(--c-blue-bg)'
                             }
                           }}
                           onMouseLeave={(e) => {

@@ -341,7 +341,7 @@ function MonitoringView({ active = true }: { active?: boolean } = {}): JSX.Eleme
                   const saved = savedKeywords.includes(k)
                   return (
                     <span key={k} className="inline-flex items-center gap-1 h-5 px-1.5 rounded-[4px] font-mono text-[10.5px] font-semibold"
-                      style={{ background: 'rgba(234,88,12,0.14)', color: '#FB923C' }}>
+                      style={{ background: 'var(--c-orange-bg)', color: 'var(--c-orange-fg)' }}>
                       {k}
                       {!saved && (
                         <button onClick={() => removeKeyword(k)} className="opacity-70 hover:opacity-100" aria-label="키워드 제거">

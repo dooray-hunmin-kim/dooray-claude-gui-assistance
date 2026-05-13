@@ -130,7 +130,7 @@ export default function SocketModeBadge(): JSX.Element {
 
             {hasApiToken === false && (
               <div className="p-2 mb-2 rounded text-[10px] flex items-start gap-1.5"
-                style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.3)', color: '#f59e0b' }}>
+                style={{ background: 'var(--c-yellow-bg)', border: '1px solid color-mix(in oklab, var(--c-yellow-fg) 30%, transparent)', color: 'var(--c-yellow-fg)' }}>
                 <AlertCircle size={11} className="flex-none mt-0.5" />
                 <span>먼저 Settings → 두레이 연결에서 API 토큰을 등록하세요</span>
               </div>
@@ -150,7 +150,7 @@ export default function SocketModeBadge(): JSX.Element {
 
             {status?.lastError && (
               <div className="p-2 mb-2 rounded text-[10px] text-red-400"
-                style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                style={{ background: 'var(--c-red-bg)', border: '1px solid color-mix(in oklab, var(--c-red-fg) 25%, transparent)' }}>
                 {status.lastError}
               </div>
             )}

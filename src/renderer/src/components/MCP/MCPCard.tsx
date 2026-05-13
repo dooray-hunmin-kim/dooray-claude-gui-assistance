@@ -70,7 +70,7 @@ function MCPCard({
                 onClick={(e) => { e.stopPropagation(); onShareToWiki() }}
                 className="ds-btn icon sm"
                 title="공유에 올리기"
-                style={{ color: '#60A5FA' }}
+                style={{ color: 'var(--c-blue-fg)' }}
               >
                 <FolderUp size={13} />
               </button>
@@ -80,7 +80,7 @@ function MCPCard({
                 onClick={(e) => { e.stopPropagation(); onToggle() }}
                 className="ds-btn icon sm"
                 title={active ? '비활성화' : '활성화'}
-                style={{ color: active ? '#22C55E' : undefined }}
+                style={{ color: active ? 'var(--c-emerald-solid)' : undefined }}
               >
                 <Power size={13} />
               </button>
