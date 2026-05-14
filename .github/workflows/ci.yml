@@ -41,6 +41,20 @@ jobs:
       - name: Run unit & component tests
         run: npm run test:run
 
+      # 커버리지 게이트 — vitest.config.ts 의 coverage.thresholds 가 라인 70% 강제.
+      # 임계치 미달 시 비-0 코드로 종료 → PR 머지 차단.
+      - name: Run coverage gate
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
       # typecheck 는 기존 코드에 선재 오류가 있어 게이트에서 제외.
       # 오류 정리 후 아래 단계 활성화하면 PR 머지 차단에 포함됨.
       # - name: Typecheck
