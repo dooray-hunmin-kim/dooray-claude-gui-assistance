@@ -38,7 +38,12 @@ jobs:
         env:
           npm_config_python: ${{ steps.python.outputs.python-path }}
 
-      - name: Run unit & component tests
+      # typecheck — main(`tsconfig.node.json`) + renderer(`tsconfig.web.json`) 모두 strict.
+      # fail-fast: 타입 오류면 테스트 돌리기 전에 즉시 종료.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run unit, component & integration tests
         run: npm run test:run
 
       # 커버리지 게이트 — vitest.config.ts 의 coverage.thresholds 가 라인 70% 강제.
@@ -54,8 +59,3 @@ jobs:
           path: coverage/
           retention-days: 14
           if-no-files-found: ignore
-
-      # typecheck 는 기존 코드에 선재 오류가 있어 게이트에서 제외.
-      # 오류 정리 후 아래 단계 활성화하면 PR 머지 차단에 포함됨.
-      # - name: Typecheck
-      #   run: npm run typecheck
