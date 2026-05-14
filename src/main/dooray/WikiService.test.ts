@@ -205,13 +205,13 @@ describe('WikiService.deletePage / renameTitle / update', () => {
 
   it('update: title 만 있으면 한 번', async () => {
     client.request.mockResolvedValue({})
-    await svc.update({ projectId: 'w1', pageId: 'p1', title: 'T' })
+    await svc.update({ projectId: 'w1', pageId: 'p1', title: 'T' } as unknown as import('../../shared/types/dooray').DoorayWikiUpdateParams)
     expect(client.request).toHaveBeenCalledTimes(1)
   })
 
   it('update: body 만 있어도 한 번', async () => {
     client.request.mockResolvedValue({})
-    await svc.update({ projectId: 'w1', pageId: 'p1', body: 'B' })
+    await svc.update({ projectId: 'w1', pageId: 'p1', body: 'B' } as unknown as import('../../shared/types/dooray').DoorayWikiUpdateParams)
     expect(client.request).toHaveBeenCalledTimes(1)
     expect((client.request.mock.calls[0][0] as string)).toContain('/content')
   })

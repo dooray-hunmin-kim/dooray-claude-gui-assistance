@@ -76,7 +76,7 @@ describe('useFontSettings — setter', () => {
   it('동일 값 set 은 no-op (변경 없음)', async () => {
     const m = await loadModule()
     const { result } = renderHook(() => m.useFontSettings())
-    const setSpy = (window.api as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set
+    const setSpy = (window.api as unknown as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set
     const before = setSpy.mock.calls.length
     act(() => result.current.setFamily('default'))
     expect(setSpy.mock.calls.length).toBe(before)

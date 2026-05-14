@@ -25,7 +25,7 @@ describe('Avatar', () => {
 
   it('size=md → 기본 클래스만', () => {
     const { container } = render(<Avatar name="X" />)
-    expect(container.firstChild?.className).toContain('ds-avatar')
+    expect((container.firstChild as Element)?.className).toContain('ds-avatar')
   })
 
   it('tone override 가 색상을 결정', () => {

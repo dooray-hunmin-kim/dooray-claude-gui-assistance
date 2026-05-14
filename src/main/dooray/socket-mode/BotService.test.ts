@@ -67,7 +67,7 @@ describe('BotService — 설정', () => {
     expect(await svc.isReady()).toBe(false)
     svc.setDomain('x.dooray.com')
     expect(await svc.isReady()).toBe(true)
-    doorayClient.getToken.mockResolvedValueOnce(null)
+    doorayClient.getToken.mockResolvedValueOnce('' as unknown as string)
     expect(await svc.isReady()).toBe(false)
   })
 })

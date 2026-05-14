@@ -83,9 +83,9 @@ describe('useTheme — hook 동작', () => {
     const m = await loadModule()
     const { result } = renderHook(() => m.useTheme())
     act(() => result.current.setTheme('light'))
-    const calls = (window.api as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set.mock.calls.length
+    const calls = (window.api as unknown as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set.mock.calls.length
     act(() => result.current.setTheme('light'))
-    expect((window.api as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set.mock.calls.length).toBe(calls)
+    expect((window.api as unknown as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set.mock.calls.length).toBe(calls)
   })
 
   it('여러 hook 인스턴스가 상태 공유', async () => {
@@ -108,7 +108,7 @@ describe('useTheme — reconcileThemeFromStore', () => {
 
   it('store 에 없으면 현재 값을 store 에 기록', async () => {
     const m = await loadModule()
-    const setSpy = (window.api as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set
+    const setSpy = (window.api as unknown as { settings: { set: ReturnType<typeof vi.fn> } }).settings.set
     await m.reconcileThemeFromStore()
     expect(setSpy).toHaveBeenCalled()
   })

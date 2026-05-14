@@ -764,7 +764,7 @@ function McpStatusButton({
         // 진짜 connected 상태는 claude code 자체가 알지만 IPC 노출이 없으므로,
         // 여기서는 "등록됨 = enabled" 로 표기.
         const list = Object.entries(cfg || {}).map(([name, c]) => {
-          const cfgRec = c as Record<string, unknown>
+          const cfgRec = c as unknown as Record<string, unknown>
           const disabled = cfgRec.disabled === true
           return {
             name,

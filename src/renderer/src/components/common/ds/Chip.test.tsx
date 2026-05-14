@@ -30,7 +30,7 @@ describe('Chip', () => {
 
   it('square=true 면 sq 클래스', () => {
     const { container } = render(<Chip square>x</Chip>)
-    expect(container.firstChild?.className).toContain('sq')
+    expect((container.firstChild as Element)?.className).toContain('sq')
   })
 
   it('className 병합', () => {

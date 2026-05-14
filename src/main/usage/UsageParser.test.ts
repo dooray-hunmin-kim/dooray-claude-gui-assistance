@@ -38,14 +38,14 @@ describe('UsageParser', () => {
   it('projects 디렉토리 없으면 빈 결과', async () => {
     const p = new UsageParser()
     ;(p as unknown as { projectsDir: string }).projectsDir = join(tmpProjects, 'missing')
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.records).toEqual([])
     expect(r.totalSessions).toBe(0)
   })
 
   it('빈 디렉토리도 안전하게 빈 결과', async () => {
     const p = makeParser()
-    const r = await p.query({ period: 'week' })
+    const r = await p.query({ period: 'week', groupBy: 'date' })
     expect(r.records).toEqual([])
   })
 
@@ -57,7 +57,7 @@ describe('UsageParser', () => {
     writeJsonl(join(dir, 'session.jsonl'), [
       record('claude-sonnet-4-6', 1_000_000, 100_000, now)
     ])
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.records).toHaveLength(1)
     // sonnet: input=$3, output=$15 per million
     // cost = 1M*3 + 100k*15 = 3 + 1.5 = 4.5
@@ -73,7 +73,7 @@ describe('UsageParser', () => {
     writeJsonl(join(dir, 's.jsonl'), [
       record('mystery-model', 1_000_000, 0, new Date().toISOString())
     ])
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.totalCostUsd).toBeCloseTo(3, 3)
   })
 
@@ -87,7 +87,7 @@ describe('UsageParser', () => {
       record('claude-sonnet-4-6', 100, 100, old),
       record('claude-sonnet-4-6', 200, 200, recent)
     ])
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.records).toHaveLength(1)
     expect(r.records[0].inputTokens).toBe(200)
   })
@@ -102,7 +102,7 @@ describe('UsageParser', () => {
       record('claude-sonnet-4-6', 100, 100, old),
       record('claude-sonnet-4-6', 200, 200, recent)
     ])
-    const r = await p.query({ period: 'week' })
+    const r = await p.query({ period: 'week', groupBy: 'date' })
     expect(r.records).toHaveLength(1)
   })
 
@@ -116,7 +116,7 @@ describe('UsageParser', () => {
       record('claude-sonnet-4-6', 100, 100, old),
       record('claude-sonnet-4-6', 200, 200, recent)
     ])
-    const r = await p.query({ period: 'month' })
+    const r = await p.query({ period: 'month', groupBy: 'date' })
     expect(r.records).toHaveLength(1)
   })
 
@@ -129,7 +129,7 @@ describe('UsageParser', () => {
       record('claude-sonnet-4-6', 100, 50, now),
       record('claude-opus-4-6', 200, 100, now)
     ])
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(Object.keys(r.byDate)).toHaveLength(1)
     expect(Object.keys(r.byModel)).toEqual(expect.arrayContaining(['claude-sonnet-4-6', 'claude-opus-4-6']))
     expect(Object.keys(r.byHour).length).toBeGreaterThan(0)
@@ -143,7 +143,7 @@ describe('UsageParser', () => {
       { timestamp: new Date().toISOString(), message: {} },          // usage 없음
       record('claude-sonnet-4-6', 10, 5, new Date().toISOString())
     ])
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.records).toHaveLength(1)
   })
 
@@ -155,7 +155,7 @@ describe('UsageParser', () => {
       'broken-line\n' + JSON.stringify(record('claude-sonnet-4-6', 10, 5, new Date().toISOString())),
       'utf8'
     )
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.records).toHaveLength(1)
   })
 
@@ -164,10 +164,10 @@ describe('UsageParser', () => {
     const dir = join(tmpProjects, 'p')
     mkdirSync(dir, { recursive: true })
     writeJsonl(join(dir, 's.jsonl'), [record('claude-sonnet-4-6', 10, 5, new Date().toISOString())])
-    await p.query({ period: 'day' })
-    await p.query({ period: 'day' })
+    await p.query({ period: 'day', groupBy: 'date' })
+    await p.query({ period: 'day', groupBy: 'date' })
     // 캐시 동작은 내부 — 외부에서 직접 검증 어려우므로 결과 일관성만 확인
-    const r2 = await p.query({ period: 'day' })
+    const r2 = await p.query({ period: 'day', groupBy: 'date' })
     expect(r2.records).toHaveLength(1)
   })
 
@@ -177,9 +177,9 @@ describe('UsageParser', () => {
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 's.jsonl')
     writeJsonl(file, [record('claude-sonnet-4-6', 10, 5, new Date().toISOString())])
-    await p.query({ period: 'day' })
+    await p.query({ period: 'day', groupBy: 'date' })
     rmSync(file)
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     expect(r.records).toEqual([])
     expect((p as unknown as { fileCache: Map<string, unknown> }).fileCache.has(file)).toBe(false)
   })
@@ -194,7 +194,7 @@ describe('UsageParser', () => {
         cache_creation_input_tokens: 1_000_000
       })
     ])
-    const r = await p.query({ period: 'day' })
+    const r = await p.query({ period: 'day', groupBy: 'date' })
     // read = 1M * 3 * 0.1 = 0.3, create = 1M * 3 * 1.25 = 3.75 → total 4.05
     expect(r.totalCostUsd).toBeCloseTo(4.05, 3)
     expect(r.totalCacheReadTokens).toBe(1_000_000)

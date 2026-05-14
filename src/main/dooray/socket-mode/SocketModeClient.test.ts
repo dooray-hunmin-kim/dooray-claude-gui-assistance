@@ -41,9 +41,10 @@ describe('SocketModeClient — 생성/state', () => {
 })
 
 describe('SocketModeClient.normalize (private)', () => {
-  function makeClient(services: string[] = ['messenger']): SocketModeClient & { normalize: (d: unknown) => unknown } {
+  type ClientWithNormalize = { normalize: (d: unknown) => unknown }
+  function makeClient(services: string[] = ['messenger']): ClientWithNormalize {
     const c = new SocketModeClient({ botToken: 't', domain: 'd', services })
-    return c as unknown as SocketModeClient & { normalize: (d: unknown) => unknown }
+    return c as unknown as ClientWithNormalize
   }
 
   it('지원 안 하는 service 는 null', () => {
