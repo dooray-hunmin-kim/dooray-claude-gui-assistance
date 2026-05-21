@@ -142,24 +142,7 @@ const CLAUDE_CLI = resolveClaudePath()
 
 export function getClaudeBin(): string { return CLAUDE_CLI }
 
-/**
- * Claude CLI 가 윈도우에서 한국어 에러를 cp949(euc-kr) 로 출력하는 경우가 있다.
- * utf-8 디코드 시 U+FFFD 가 다수 발생하면 euc-kr 로 재시도해서 본문을 살린다.
- * (Electron 은 full-ICU 가 번들돼 있어 TextDecoder('euc-kr') 사용 가능)
- */
-function decodeProcessText(buf: Buffer | undefined | null): string {
-  if (!buf || buf.length === 0) return ''
-  const utf8 = new TextDecoder('utf-8').decode(buf)
-  if (process.platform !== 'win32' || !utf8.includes('�')) return utf8
-  try {
-    const euckr = new TextDecoder('euc-kr', { fatal: false }).decode(buf)
-    const utf8Bad = (utf8.match(/�/g) || []).length
-    const euckrBad = (euckr.match(/�/g) || []).length
-    return euckrBad < utf8Bad ? euckr : utf8
-  } catch {
-    return utf8
-  }
-}
+import { decodeProcessText, isBenignStderr } from '../utils/procText'
 
 /**
  * Claude CLI 오류를 사용자 친화적 메시지로 변환.
@@ -560,17 +543,9 @@ ${skillBlock}`
           // claude 가 `-p` 모드에서 출력하는 "Warning: no stdin data received in 3s, proceeding without it"
           // 같은 메시지는 정상 동작 중 발생하는 경고라 사용자에게 에러로 노출하면 혼란.
           const stderrText = readStderr()
-          const stderrLines = stderrText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-          // 비치명 메시지 패턴 — 사용자에게 에러로 노출 X.
-          //  1) "Warning: no stdin data received..." 같은 일반 경고
-          //  2) "If piping from a slow command, redirect stdin..." 같은 위 경고의 멀티라인 뒷부분
-          //  3) "SessionEnd hook [...] failed: Hook cancelled" — OMC 류 플러그인의 종료 훅 노이즈
-          //  4) "SessionStart hook ..." / "PreToolUse hook ..." 같은 다른 훅 실패 (claude 본 응답에는 영향 없음)
-          const BENIGN = /^(warning:|if piping from|sessionend hook |sessionstart hook |pretooluse hook |posttooluse hook |stop hook )/i
-          const onlyBenign = stderrLines.length > 0 && stderrLines.every((l) => BENIGN.test(l))
-          // exit code 0 + benign → 빈 결과로 통과 (기존 동작)
-          // exit code 비-0 이어도 benign 만이면 사용자 작업 흐름 끊지 말고 빈 결과로 통과 (Windows OMC 훅 false-fatal 방지)
-          if (onlyBenign) {
+          // 비치명 stderr (Warning, OMC 훅 실패 등) 만이면 사용자 작업 흐름 끊지 말고 빈 결과로 통과.
+          // 패턴/판정 로직은 src/main/utils/procText.ts 의 isBenignStderr 가 일관 관리.
+          if (isBenignStderr(stderrText)) {
             resolve({
               type: 'result',
               result: '',

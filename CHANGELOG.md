@@ -2,11 +2,15 @@
 
 ## [1.5.1] - 윈도우 핫픽스
 
-윈도우 사용자가 브리핑/스킬 생성을 돌릴 때 깨진 문자(◇◇◇) 에러가 뜨거나, 정상 동작인데 OMC 플러그인의 SessionEnd 훅 노이즈 때문에 거짓 실패로 표시되던 문제 핫픽스.
+윈도우 사용자가 브리핑/스킬 생성/Claude 채팅/브랜치 작업을 돌릴 때 깨진 문자(◇◇◇) 에러가 뜨거나, 정상 동작인데 OMC 플러그인의 SessionEnd 훅 노이즈 때문에 거짓 실패로 표시되던 문제 핫픽스.
 
 ### 버그 수정
-- **윈도우 한국어 에러 mojibake** — claude CLI 가 한국 Windows 콘솔에서 cp949(euc-kr) 로 stderr 를 출력하는 경우가 있는데, 우리가 utf-8 로만 디코드해 `�������� �ʹ� ��ϴ�` 같이 깨져 보이던 문제. `decodeProcessText` 헬퍼로 raw Buffer 누적 후 utf-8 디코드 → U+FFFD 가 검출되면 euc-kr 로 재디코드해 어느 쪽이 덜 깨졌는지로 선택. Electron 의 full-ICU 번들 사용. (`runClaude`/`runClaudeStream` 양쪽 적용)
-- **벤긴(benign) stderr 노이즈를 fatal 로 오인하던 문제** — 기존엔 `^warning:` 만 비치명으로 인식했는데, OMC 류 플러그인이 출력하는 `SessionEnd hook [...] failed: Hook cancelled` 등은 매칭이 안 돼 실제 응답이 정상이어도 사용자에게 에러로 노출. `SessionEnd/SessionStart/PreToolUse/PostToolUse/Stop hook ... failed` 패턴과 `If piping from...` 같은 멀티라인 경고 뒷부분도 비치명에 포함. exit code 비-0 인 경우에도 stderr 가 전부 비치명이면 사용자 작업 흐름 끊지 않고 빈 결과로 통과.
+- **윈도우 한국어 에러 mojibake (전 범위)** — Claude CLI / git 등이 한국 Windows 콘솔에서 cp949(euc-kr) 로 stderr 를 출력하는 경우 utf-8 로만 디코드해 `�������� �ʹ� ��ϴ�` 같이 깨져 보이던 문제. 공용 `decodeProcessText` 헬퍼(`src/main/utils/procText.ts`) 신설 — raw Buffer 누적 후 utf-8 디코드 → U+FFFD 가 검출되면 euc-kr 로 재디코드해 어느 쪽이 덜 깨졌는지로 선택 (Electron full-ICU 번들). 적용 범위:
+  - `AIService.runClaude` / `runClaudeStream` — 브리핑, 보고서, AI 채우기, 스킬 생성 등 모든 AI 호출
+  - `ClaudeChatService` — 인앱 Claude Code 채팅 세션
+  - `GitService` — 브랜치/워크트리 작업
+  - `ipcMain.handle('claude-cli:info')` — Claude CLI 도움말 한국어 번역
+- **벤긴(benign) stderr 노이즈를 fatal 로 오인하던 문제** — 기존엔 `^warning:` 만 비치명으로 인식했는데, OMC 류 플러그인이 출력하는 `SessionEnd hook [...] failed: Hook cancelled` 등은 매칭이 안 돼 실제 응답이 정상이어도 사용자에게 에러로 노출. 공용 `isBenignStderr` 헬퍼 신설 — `Warning/SessionEnd hook/SessionStart hook/PreToolUse hook/PostToolUse hook/Stop hook ... failed` 패턴과 `If piping from...` 같은 멀티라인 경고 뒷부분 매칭. exit code 비-0 인 경우에도 stderr 가 전부 비치명이면 작업 흐름 끊지 않고 빈 결과로 통과. AIService + ClaudeChatService 양쪽 적용.
 
 ## [1.5.0] - CalDAV 자체 캘린더 + 에이전틱 브리핑/보고서
 
