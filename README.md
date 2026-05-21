@@ -167,6 +167,8 @@
 <details>
 <summary><b>대시보드 + 빠른 태스크 생성</b></summary>
 
+![대시보드](docs/screenshots/v155-dashboard.png)
+
 - 전체 / 진행 / 등록 / 오늘 마감 / 완료 카운트
 - 자연어 한 줄로 빠른 태스크 생성 — 제목 / 본문 / 태그 자동 채움
 - AI 지시문 입력란 — "나는 이런 식으로 태스크를 쓴다" 규칙 고정
@@ -176,6 +178,8 @@
 
 <details>
 <summary><b>Claude Code 터미널</b> — 한글 안 깨지고, 재시작해도 깨끗</summary>
+
+![터미널](docs/screenshots/v155-terminal.png)
 
 - 폴더 선택 / 다중 탭 (<kbd>⌘/Ctrl</kbd>+<kbd>T</kbd>, <kbd>⌘/Ctrl</kbd>+<kbd>W</kbd>)
 - 일반 쉘로도 사용 가능 — Claude Code 전용 아님
