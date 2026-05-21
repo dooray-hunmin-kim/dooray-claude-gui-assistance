@@ -404,6 +404,18 @@ ${skillBlock}`
         '--verbose'
       )
 
+      // 명령줄 길이 한계 회피: `-p <prompt>` 의 prompt 본문을 argv 에서 빼서 stdin 으로 파이프.
+      // Why: 브리핑처럼 태스크 JSON 덤프가 누적되면 prompt 가 수십 KB 가 되는데,
+      // Windows 의 cmd.exe 명령줄 한계(~8KB) 와 CreateProcess(~32KB) 에 둘 다 걸려
+      // "명령줄이 너무 깁니다" 오류 발생. claude CLI 는 `-p` 단독이면 stdin 을 읽으므로
+      // prompt 만 stdin 으로 옮겨주면 한계를 우회. 플랫폼 무관 일관 적용 (mac 도 안전).
+      let stdinPrompt: string | null = null
+      const pIdx = cleaned.indexOf('-p')
+      if (pIdx >= 0 && pIdx + 1 < cleaned.length && !cleaned[pIdx + 1].startsWith('-')) {
+        stdinPrompt = cleaned[pIdx + 1]
+        cleaned.splice(pIdx + 1, 1)
+      }
+
       // Windows 호환 (Issue #11): claude 가 .cmd 면 Node 의 spawn 이 자동 추론 못함 → shell:true.
       // windowsVerbatimArguments 로 cmd codepage 변환 차단 (한글 prompt 깨짐 방지).
       const isWindows = process.platform === 'win32'
@@ -412,6 +424,12 @@ ${skillBlock}`
         shell: isWindows,
         windowsVerbatimArguments: isWindows
       })
+
+      if (stdinPrompt !== null && proc.stdin) {
+        proc.stdin.on('error', () => { /* EPIPE 등은 close 핸들러가 처리 */ })
+        proc.stdin.write(stdinPrompt, 'utf8')
+        proc.stdin.end()
+      }
       let buffer = ''
       let finalResult: ClaudeCliResult | null = null
       let accumulated = ''

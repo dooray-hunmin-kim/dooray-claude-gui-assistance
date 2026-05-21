@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { EventEmitter } from 'events'
 
-let lastSpawn: { stdout: EventEmitter; stderr: EventEmitter; kill: ReturnType<typeof vi.fn>; emitClose: (code: number) => void; on: (event: string, cb: (arg?: unknown) => void) => void } | null = null
+let lastSpawn: { stdout: EventEmitter; stderr: EventEmitter; stdin: EventEmitter & { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }; kill: ReturnType<typeof vi.fn>; emitClose: (code: number) => void; on: (event: string, cb: (arg?: unknown) => void) => void } | null = null
 const onHandlers: Record<string, ((arg?: unknown) => void)[]> = {}
 
 vi.mock('child_process', () => {
@@ -9,10 +9,15 @@ vi.mock('child_process', () => {
     const stdout = new EventEmitter()
     const stderr = new EventEmitter()
     const kill = vi.fn()
+    const stdin = Object.assign(new EventEmitter(), {
+      write: vi.fn(),
+      end: vi.fn()
+    })
     const procHandlers: Record<string, ((arg?: unknown) => void)[]> = {}
     const proc = {
       stdout,
       stderr,
+      stdin,
       kill,
       on: (event: string, cb: (arg?: unknown) => void) => {
         ;(procHandlers[event] ||= []).push(cb)
@@ -105,6 +110,27 @@ describe('AIService.isAvailable', () => {
 })
 
 describe('AIService.ask (스트리밍)', () => {
+  it('prompt 는 stdin 으로 전달되고 argv 에서는 제거된다 (Windows 명령줄 한계 회피)', async () => {
+    const svc = new AIService()
+    const longPrompt = 'X'.repeat(10000)
+    const promise = svc.ask(longPrompt)
+    await Promise.resolve()
+    // spawn 인자에 -p 는 있지만 그 뒤에 prompt 본문은 없어야 함 (다음 토큰이 다른 플래그)
+    const callArgs = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+    const argv = callArgs.mock.calls[callArgs.mock.calls.length - 1][1] as string[]
+    const pIdx = argv.indexOf('-p')
+    expect(pIdx).toBeGreaterThanOrEqual(0)
+    expect(argv[pIdx + 1]?.startsWith('-')).toBe(true)
+    // prompt 본문은 stdin 으로 write
+    expect(lastSpawn!.stdin.write).toHaveBeenCalledWith(longPrompt, 'utf8')
+    expect(lastSpawn!.stdin.end).toHaveBeenCalled()
+    lastSpawn!.stdout.emit('data', Buffer.from(JSON.stringify({
+      type: 'result', result: 'ok', duration_ms: 0, session_id: '', is_error: false, total_cost_usd: 0
+    }) + '\n', 'utf8'))
+    lastSpawn!.emitClose(0)
+    await promise
+  })
+
   it('runClaudeStream 통합 — final result 가 result 필드 반환', async () => {
     const svc = new AIService()
     const promise = svc.ask('hello')
