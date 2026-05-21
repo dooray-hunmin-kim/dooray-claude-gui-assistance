@@ -93,8 +93,8 @@ function App(): JSX.Element {
         setCmdOpen((o) => !o)
         return
       }
-      // ⌘/Ctrl+; — 어디서든 오늘 할 일 빠른 추가 (Apple Quick Note 패턴, 한 손에 가까움)
-      if (meta && !e.shiftKey && (e.key === ';' || e.code === 'Semicolon')) {
+      // ⌘/Ctrl+/ — 어디서든 오늘 할 일 빠른 추가
+      if (meta && !e.shiftKey && (e.key === '/' || e.code === 'Slash')) {
         e.preventDefault()
         setQuickTodoOpen(true)
         return
@@ -263,7 +263,7 @@ function App(): JSX.Element {
           id: 'quick-todo',
           label: '오늘 할 일 빠른 추가',
           icon: <CheckSquare size={13} className="text-emerald-500" />,
-          hint: '⌘;'
+          hint: '⌘/'
         },
         {
           id: 'toggle-theme',
