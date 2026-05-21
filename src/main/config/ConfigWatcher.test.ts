@@ -33,7 +33,8 @@ describe('ConfigWatcher', () => {
     const w = new ConfigWatcher()
     w.start()
     expect(watchInstances).toHaveLength(1)
-    const paths = watchInstances[0].pathsWatched as string[]
+    // Windows 호환 — 경로 구분자(\, /) 차이로 endsWith 매칭 깨지는 문제 회피.
+    const paths = (watchInstances[0].pathsWatched as string[]).map((p) => p.replace(/\\/g, '/'))
     expect(paths.some((p) => p.endsWith('.claude/settings.json'))).toBe(true)
     expect(paths.some((p) => p.endsWith('commands'))).toBe(true)
     expect(paths.some((p) => p.endsWith('skills'))).toBe(true)

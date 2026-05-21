@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, mkdirSync, existsSync, copyFileSync, statSync } from 'fs'
+import { basename } from 'path'
 import type { ClaudaySkill, SkillTarget } from '../../shared/types/skill'
 
 /**
@@ -62,7 +63,8 @@ function fileToSkill(filePath: string, target: string): ClaudaySkill | null {
 
     // Markdown frontmatter
     const { meta, content } = parseFrontmatter(raw)
-    const fileName = filePath.split('/').pop()?.replace(/\.(md|json)$/, '') || ''
+    // Windows 호환 — path 구분자(\, /) 양쪽 지원. basename 으로 처리.
+    const fileName = basename(filePath).replace(/\.(md|json)$/, '')
     return {
       id: fileName,
       name: meta.name || fileName,
