@@ -93,8 +93,8 @@ function App(): JSX.Element {
         setCmdOpen((o) => !o)
         return
       }
-      // ⌘/Ctrl+Shift+T — 어디서든 오늘 할 일 빠른 추가
-      if (meta && e.shiftKey && e.key.toLowerCase() === 't') {
+      // ⌘/Ctrl+; — 어디서든 오늘 할 일 빠른 추가 (Apple Quick Note 패턴, 한 손에 가까움)
+      if (meta && !e.shiftKey && (e.key === ';' || e.code === 'Semicolon')) {
         e.preventDefault()
         setQuickTodoOpen(true)
         return
@@ -178,6 +178,10 @@ function App(): JSX.Element {
         setRecentPaletteOpen((wasOpen) => {
           if (!wasOpen) {
             setRecentIndex(Math.min(1, recentItems.length - 1))
+            // 터미널/xterm 등 다른 요소에 포커스가 있으면 화살표가 그쪽으로 흘러간다.
+            // 팔레트가 자체 포커스를 잡기 전에 활성 요소부터 blur 해서 키 이벤트가 window 리스너로 직행하게.
+            const active = document.activeElement as HTMLElement | null
+            if (active && typeof active.blur === 'function') active.blur()
             return true
           }
           setRecentIndex((i) => {
@@ -259,7 +263,7 @@ function App(): JSX.Element {
           id: 'quick-todo',
           label: '오늘 할 일 빠른 추가',
           icon: <CheckSquare size={13} className="text-emerald-500" />,
-          hint: '⌘⇧T'
+          hint: '⌘;'
         },
         {
           id: 'toggle-theme',
@@ -410,8 +414,11 @@ function RecentViewsPalette({ open, items, index, onHover, onPick, onClose }: {
       onClick={onClose}
     >
       <div
+        // 팔레트가 열리면 즉시 포커스를 잡아 xterm 등 다른 요소가 화살표를 가로채는 것을 막는다.
+        ref={(el) => { if (el) el.focus() }}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className="w-[380px] rounded-xl shadow-2xl overflow-hidden"
+        className="w-[380px] rounded-xl shadow-2xl overflow-hidden outline-none"
         style={{ background: 'var(--bg-surface-raised)', border: '1px solid var(--bg-border)' }}
       >
         <div className="px-3 py-2 border-b border-bg-border flex items-center gap-2">
