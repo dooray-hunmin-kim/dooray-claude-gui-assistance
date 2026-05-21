@@ -142,6 +142,8 @@ const CLAUDE_CLI = resolveClaudePath()
 
 export function getClaudeBin(): string { return CLAUDE_CLI }
 
+import { decodeProcessText, isBenignStderr } from '../utils/procText'
+
 /**
  * Claude CLI 오류를 사용자 친화적 메시지로 변환.
  * "Not logged in" 같은 원인 불분명 에러에 복구 가이드 첨부.
@@ -346,9 +348,14 @@ ${skillBlock}`
         {
           maxBuffer: 1024 * 1024 * 5,
           timeout: 120000,
-          env: enrichedEnv()
+          env: enrichedEnv(),
+          // Windows cp949 mojibake 방지 — raw Buffer 로 받아 decodeProcessText 가
+          // utf-8/euc-kr 자동 판별 후 디코드.
+          encoding: 'buffer'
         },
-        (error, stdout, stderr) => {
+        (error, stdoutBuf, stderrBuf) => {
+          const stdout = decodeProcessText(stdoutBuf as Buffer)
+          const stderr = decodeProcessText(stderrBuf as Buffer)
           if (error && !stdout) {
             reject(wrapClaudeError(error.message, stderr))
             return
@@ -408,7 +415,9 @@ ${skillBlock}`
       let buffer = ''
       let finalResult: ClaudeCliResult | null = null
       let accumulated = ''
-      let stderrBuf = ''
+      // Windows cp949 mojibake 방지를 위해 raw Buffer 누적 — 사용 시점에서 디코드.
+      const stderrChunks: Buffer[] = []
+      const readStderr = (): string => decodeProcessText(Buffer.concat(stderrChunks))
 
       // timeoutMs === null이면 타임아웃 없음(장시간 MCP 작업용). 미지정이면 120초.
       const timeoutMs = options.timeoutMs === undefined ? 120000 : options.timeoutMs
@@ -507,12 +516,12 @@ ${skillBlock}`
       })
 
       proc.stderr.on('data', (data: Buffer) => {
-        stderrBuf += data.toString('utf-8')
+        stderrChunks.push(data)
       })
 
       proc.on('error', (err) => {
         if (timeout) clearTimeout(timeout)
-        reject(wrapClaudeError(err.message, stderrBuf))
+        reject(wrapClaudeError(err.message, readStderr()))
       })
 
       proc.on('close', (code) => {
@@ -533,9 +542,10 @@ ${skillBlock}`
           // Issue #11 — exit 0 인데 결과가 없는 경우: stderr 가 Warning: 류 비치명 메시지일 가능성이 큼.
           // claude 가 `-p` 모드에서 출력하는 "Warning: no stdin data received in 3s, proceeding without it"
           // 같은 메시지는 정상 동작 중 발생하는 경고라 사용자에게 에러로 노출하면 혼란.
-          const stderrLines = (stderrBuf || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-          const onlyWarnings = stderrLines.length > 0 && stderrLines.every((l) => /^warning:/i.test(l))
-          if (code === 0 && onlyWarnings) {
+          const stderrText = readStderr()
+          // 비치명 stderr (Warning, OMC 훅 실패 등) 만이면 사용자 작업 흐름 끊지 말고 빈 결과로 통과.
+          // 패턴/판정 로직은 src/main/utils/procText.ts 의 isBenignStderr 가 일관 관리.
+          if (isBenignStderr(stderrText)) {
             resolve({
               type: 'result',
               result: '',
@@ -546,7 +556,7 @@ ${skillBlock}`
             })
             return
           }
-          reject(wrapClaudeError(stderrBuf || `Claude CLI 종료 코드 ${code}`, stderrBuf))
+          reject(wrapClaudeError(stderrText || `Claude CLI 종료 코드 ${code}`, stderrText))
         }
       })
     })

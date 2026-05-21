@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.5.1] - 윈도우 핫픽스
+
+윈도우 사용자가 브리핑/스킬 생성/Claude 채팅/브랜치 작업을 돌릴 때 깨진 문자(◇◇◇) 에러가 뜨거나, 정상 동작인데 OMC 플러그인의 SessionEnd 훅 노이즈 때문에 거짓 실패로 표시되던 문제 핫픽스 + 윈도우 키보드 단축키/복붙 호환.
+
+### 신규 기능
+- **할 일 빠른 추가 (전역 단축키)** — 어디서든 **⌘/Ctrl + /** 누르면 오늘 자 종일 로컬 todo 를 한 줄로 등록하는 모달이 뜸. 캘린더 화면 안 가도 됨. CommandPalette(⌘K) 의 "오늘 할 일 빠른 추가" 메뉴로도 동일 호출.
+- **⌘E 최근 뷰 포커스 개선** — 터미널/xterm 이 활성화된 상태에서 ⌘E 로 최근 뷰 팔레트를 열면 화살표가 xterm 으로 흘러가 동작 안 하던 문제. 팔레트가 자체적으로 포커스를 잡고 활성 요소를 blur 해 키 이벤트가 곧바로 팔레트로 들어가도록.
+
+### 윈도우 키보드 호환
+- **터미널 복붙** — 윈도우에서는 Cmd 가 없어 기존 Mac 단축키가 동작 안 함. **Ctrl+Shift+C** (복사) / **Ctrl+Shift+V** (붙여넣기, 텍스트·이미지 모두) / **Ctrl+Insert** (복사, 레거시) 추가. 기존 Shift+Insert(붙여넣기)도 유지. 일반 Ctrl+C 는 PTY 의 SIGINT 와 충돌하므로 Shift 필수 (윈도우 터미널 표준 패턴).
+- **앱 단축키 Cmd → Ctrl 동등 대응** — 기존엔 `e.metaKey` 만 체크해 Mac 전용으로 동작하던 단축키들을 `metaKey || ctrlKey` 로 변경:
+  - **Ctrl+T** (새 터미널 탭), **Ctrl+W** (탭 닫기), **Ctrl+1~9** (탭 전환) — `TerminalView`
+  - **Ctrl+Enter** (메시지 전송) — `CommunityView`, `AIRecommendView`
+  - **Ctrl+K** (커맨드 팔레트), **Ctrl+E** (최근 뷰), **Ctrl+F** (터미널 검색) 등은 이미 양쪽 지원이라 표기/매뉴얼만 통일
+- **앱 메뉴 accelerator 명시** — Electron 의 Edit submenu role 만 두면 윈도우에서 단축키가 등록 안 되는 케이스가 있어 `Ctrl+Z/X/C/V/A` 를 명시. `pasteAndMatchStyle` 의 기본 `Ctrl+Shift+V` 는 터미널 paste 와 충돌 방지를 위해 미할당.
+
+### 버그 수정
+- **윈도우 한국어 에러 mojibake (전 범위)** — Claude CLI / git 등이 한국 Windows 콘솔에서 cp949(euc-kr) 로 stderr 를 출력하는 경우 utf-8 로만 디코드해 `�������� �ʹ� ��ϴ�` 같이 깨져 보이던 문제. 공용 `decodeProcessText` 헬퍼(`src/main/utils/procText.ts`) 신설 — raw Buffer 누적 후 utf-8 디코드 → U+FFFD 가 검출되면 euc-kr 로 재디코드해 어느 쪽이 덜 깨졌는지로 선택 (Electron full-ICU 번들). 적용 범위:
+  - `AIService.runClaude` / `runClaudeStream` — 브리핑, 보고서, AI 채우기, 스킬 생성 등 모든 AI 호출
+  - `ClaudeChatService` — 인앱 Claude Code 채팅 세션
+  - `GitService` — 브랜치/워크트리 작업
+  - `ipcMain.handle('claude-cli:info')` — Claude CLI 도움말 한국어 번역
+- **벤긴(benign) stderr 노이즈를 fatal 로 오인하던 문제** — 기존엔 `^warning:` 만 비치명으로 인식했는데, OMC 류 플러그인이 출력하는 `SessionEnd hook [...] failed: Hook cancelled` 등은 매칭이 안 돼 실제 응답이 정상이어도 사용자에게 에러로 노출. 공용 `isBenignStderr` 헬퍼 신설 — `Warning/SessionEnd hook/SessionStart hook/PreToolUse hook/PostToolUse hook/Stop hook ... failed` 패턴과 `If piping from...` 같은 멀티라인 경고 뒷부분 매칭. exit code 비-0 인 경우에도 stderr 가 전부 비치명이면 작업 흐름 끊지 않고 빈 결과로 통과. AIService + ClaudeChatService 양쪽 적용.
+
 ## [1.5.0] - CalDAV 자체 캘린더 + 에이전틱 브리핑/보고서
 
 v1.5는 두 가지 큰 축이 있습니다. 첫째, 두레이 캘린더를 CalDAV 로 자체 수집해 구글 캘린더 스타일 월간 뷰까지 연결한 캘린더 도메인 자립. 둘째, AI 브리핑과 보고서가 두레이 데이터만 정리하던 단계를 넘어 사용자 셸 명령(gh, git, npm 등) · 웹 검색 · MCP 도구를 직접 호출해 외부 시스템 상태(PR, CI, 배포, 이슈)를 fetch 한 뒤 결과 URL 까지 브리핑 본문에 인용하는 에이전틱 모드. 부차적으로 디자인 시스템 v2 시맨틱 토큰, 라이트 모드 가독성 패치, 광범위한 단위/통합 테스트(700+) 와 CI 게이트(typecheck, coverage 70%) 정착 등 안정화 기반이 정비됐습니다.

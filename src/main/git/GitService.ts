@@ -1,6 +1,7 @@
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { join, basename, dirname } from 'path'
+import { decodeProcessText } from '../utils/procText'
 import type {
   GitWorktree,
   GitWorktreeStatus,
@@ -14,7 +15,10 @@ import type {
 
 function git(args: string[], cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 30000 }, (err, stdout, stderr) => {
+    // Windows 한국어 콘솔에서 git 가 cp949 로 에러를 출력할 수 있어 raw Buffer 로 받아 자동 디코드.
+    execFile('git', args, { cwd, maxBuffer: 10 * 1024 * 1024, timeout: 30000, encoding: 'buffer' }, (err, stdoutBuf, stderrBuf) => {
+      const stdout = decodeProcessText(stdoutBuf as Buffer)
+      const stderr = decodeProcessText(stderrBuf as Buffer)
       if (err) {
         reject(new Error(stderr?.trim() || err.message))
       } else {

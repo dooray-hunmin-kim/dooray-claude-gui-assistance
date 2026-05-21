@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'child_process'
+import { decodeProcessText, isBenignStderr } from '../utils/procText'
 import { BrowserWindow } from 'electron'
 import { homedir } from 'os'
 import { join, delimiter as pathDelimiter } from 'path'
@@ -45,8 +46,8 @@ interface ChatSession {
   cwd: string
   /** stdout 버퍼 (개행 단위 파싱용) */
   buffer: string
-  /** stderr 누적 (오류 메시지 표시용) */
-  stderrBuf: string
+  /** stderr 누적 (오류 메시지 표시용) — Windows cp949 mojibake 방지 위해 raw Buffer 로 누적, 사용 시점 디코드 */
+  stderrChunks: Buffer[]
   lastTextMsgId: string
   sessionId?: string
   /** result 이벤트가 와서 응답 종료가 보고된 적 있는지 */
@@ -186,7 +187,7 @@ export class ClaudeChatService {
       proc,
       cwd: opts.cwd,
       buffer: '',
-      stderrBuf: '',
+      stderrChunks: [],
       lastTextMsgId: '',
       sessionId: opts.resumeSessionId,
       hasResultBeenSent: false
@@ -210,7 +211,7 @@ export class ClaudeChatService {
     })
 
     proc.stderr.on('data', (d: Buffer) => {
-      session.stderrBuf += d.toString('utf-8')
+      session.stderrChunks.push(d)
     })
 
     proc.on('error', (err) => {
@@ -219,13 +220,17 @@ export class ClaudeChatService {
     })
 
     proc.on('close', (code) => {
-      // 정상 종료(0)가 아닌데 result 이벤트도 못 받았으면 사용자에게 에러 노출
+      // 정상 종료(0)가 아닌데 result 이벤트도 못 받았으면 사용자에게 에러 노출.
+      // 단, stderr 가 전부 비치명(Warning, OMC 훅 실패 등)이면 false-fatal 방지를 위해 noop.
       if (code !== 0 && !session.hasResultBeenSent) {
-        this.emit({
-          type: 'error',
-          chatId,
-          message: session.stderrBuf.trim() || `claude 종료 코드 ${code}`
-        })
+        const stderrText = decodeProcessText(Buffer.concat(session.stderrChunks)).trim()
+        if (!isBenignStderr(stderrText)) {
+          this.emit({
+            type: 'error',
+            chatId,
+            message: stderrText || `claude 종료 코드 ${code}`
+          })
+        }
       }
       this.sessions.delete(chatId)
     })

@@ -1473,8 +1473,12 @@ ${data}`,
       : [join(home, '.claude', 'local'), join(home, '.claude', 'bin'), '/usr/local/bin', '/opt/homebrew/bin', join(home, '.local', 'bin')]
     // 사용자 PATH 우선 — extraPaths 는 fallback (구버전 claude 가 우리 prepend 로 잡히는 문제 방지)
     const richEnv = { ...process.env, PATH: [process.env.PATH || '', ...extraPaths].join(pathDelim), DISABLE_OMC: '1' }
+    const { decodeProcessText } = require('./utils/procText') as typeof import('./utils/procText')
     const run = (args: string[]): Promise<string> => new Promise((resolve) => {
-      execFile('claude', args, { timeout: 5000, env: richEnv }, (err: Error | null, stdout: string, stderr: string) => {
+      // Windows cp949 mojibake 방지 — raw Buffer 로 받아 자동 디코드.
+      execFile('claude', args, { timeout: 5000, env: richEnv, encoding: 'buffer' }, (err: Error | null, stdoutBuf: Buffer, stderrBuf: Buffer) => {
+        const stdout = decodeProcessText(stdoutBuf)
+        const stderr = decodeProcessText(stderrBuf)
         resolve(stdout || stderr || (err?.message ?? ''))
       })
     })
@@ -1600,13 +1604,17 @@ function installAppMenu(): void {
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        // accelerator 를 명시적으로 지정 — 윈도우에서 role 만 두면 단축키가 등록 안 되는 케이스 보강.
+        { role: 'undo', accelerator: 'CmdOrCtrl+Z' },
+        { role: 'redo', accelerator: 'CmdOrCtrl+Shift+Z' },
         { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
+        { role: 'cut', accelerator: 'CmdOrCtrl+X' },
+        { role: 'copy', accelerator: 'CmdOrCtrl+C' },
+        { role: 'paste', accelerator: 'CmdOrCtrl+V' },
+        // pasteAndMatchStyle 의 기본 단축키는 Ctrl+Shift+V 인데, 우리는 그 키를 터미널의 paste
+        // 단축키로 따로 쓰고 있어 충돌 방지를 위해 미할당.
+        { role: 'pasteAndMatchStyle', accelerator: '' },
+        { role: 'selectAll', accelerator: 'CmdOrCtrl+A' }
       ]
     },
     {
