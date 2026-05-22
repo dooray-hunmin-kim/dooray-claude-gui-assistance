@@ -1,11 +1,17 @@
 ---
 id: ADR-mac-build-zip-fallback-01
 title: Mac 빌드 target — DMG 제거, ZIP 으로 전환 (서명키 부재 회피)
-status: accepted
+status: superseded
 date: 2026-05-22
+superseded_by: ADR-mac-build-local-build-01
 supersedes: []
 domain: build-release
 ---
+
+> ⚠ **SUPERSEDED** by `ADR-mac-build-local-build-01` (같은 날 2026-05-22).
+> 본 ADR 의 결정 (zip 단독) 은 GitHub Actions runner 에서 실행되는 것을 전제로 했음.
+> 사용자 결정으로 macOS 잡 자체를 GitHub Actions 에서 *제거* 하고 로컬 Mac 에서 dmg 빌드 + 수동 업로드로 변경.
+> 본 ADR 의 결정/대안 분석은 *기록 목적* 으로 보존.
 
 # Mac 빌드 target — DMG 제거, ZIP 으로 전환
 
