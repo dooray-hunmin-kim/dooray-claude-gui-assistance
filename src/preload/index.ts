@@ -87,6 +87,7 @@ import type {
   UnifiedEvent,
   UnifiedEventCreate,
   UnifiedEventDateTimeUpdate,
+  UnifiedEventUpdate,
   UnifiedEventQuery,
   LocalCalendar,
   LocalCalendarCreate,

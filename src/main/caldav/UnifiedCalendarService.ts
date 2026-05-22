@@ -4,13 +4,14 @@ import type {
   UnifiedEvent,
   UnifiedEventCreate,
   UnifiedEventDateTimeUpdate,
+  UnifiedEventUpdate,
   UnifiedEventQuery
 } from '../../shared/types/calendar'
 import { CalDAVClient, type SyncProgress } from './CalDAVClient'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { LocalEventStore } from './LocalEventStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
-import { parseICal, patchDateTimeInIcs } from './ical'
+import { parseICal, patchDateTimeInIcs, buildICal } from './ical'
 import { HolidayService, HOLIDAY_CALENDAR_ID, HOLIDAY_CALENDAR_NAME } from '../holiday/HolidayService'
 
 /**
