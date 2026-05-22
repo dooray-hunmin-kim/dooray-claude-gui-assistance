@@ -188,7 +188,27 @@ function FeedbackProvider({ children }: { children: ReactNode }): JSX.Element {
                 <button
                   key={opt.value}
                   className={`ds-btn sm ${category === opt.value ? 'primary' : ''}`}
-                  onClick={() => setCategory(opt.value)}
+                  onClick={() => {
+                    if (category === opt.value) return
+                    setCategory(opt.value)
+                    // 카테고리 전환 시 제목/내용 리셋 + bug 면 진단 prefill 재호출
+                    setSubject('')
+                    setUserNote('')
+                    if (opt.value === 'bug') {
+                      setLoading(true)
+                      window.api.errorReport.collect()
+                        .then((c) => {
+                          setSubject(c.defaultSubject)
+                          setDiagnostic(c.body)
+                        })
+                        .catch((err) => {
+                          toast.error('진단 정보 수집 실패', err instanceof Error ? err.message : String(err))
+                        })
+                        .finally(() => setLoading(false))
+                    } else {
+                      setDiagnostic('')
+                    }
+                  }}
                   disabled={submitting}
                   style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1 }}
                 >
@@ -201,8 +221,11 @@ function FeedbackProvider({ children }: { children: ReactNode }): JSX.Element {
               {category === 'bug'
                 ? '오류 발생 시 진단 정보가 자동 포함됩니다. 민감정보가 있으면 직접 지우고 보내주세요.'
                 : category === 'feature'
-                ? '원하는 기능을 설명해주세요. 처리 결과는 PR/Issue 에서 확인하세요.'
-                : '개선할 점을 제안해주세요. 처리 결과는 PR/Issue 에서 확인하세요.'}
+                ? '원하는 기능을 설명해주세요.'
+                : '개선할 점을 제안해주세요.'}
+              <div className="mt-1 text-text-tertiary">
+                전송 시 Ultra Agent 가 자동으로 분석 → 브랜치 생성 → 구현 → 테스트 → PR 생성합니다. 5~30분 후 PR/Issue 링크가 두레이 메신저로 회신됩니다.
+              </div>
             </div>
 
             <label className="flex flex-col gap-1">
@@ -212,7 +235,13 @@ function FeedbackProvider({ children }: { children: ReactNode }): JSX.Element {
                 className="ds-input"
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
-                placeholder="한 줄 제목"
+                placeholder={
+                  category === 'bug'
+                    ? '예: 브리핑 응답이 비어있음'
+                    : category === 'feature'
+                    ? '예: 캘린더 일정 검색 기능 추가'
+                    : '예: 사이드바 토글 위치 조정'
+                }
                 maxLength={100}
                 disabled={submitting}
               />
