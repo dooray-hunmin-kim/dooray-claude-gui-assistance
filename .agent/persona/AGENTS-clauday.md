@@ -148,3 +148,75 @@ PR #<N> — <title> — <url>
 ---
 
 **한 줄 요약**: 메시지 1 발 → PR 1 발. 머지는 임태원이. 워터루클로의 기본 정체는 SOUL.md 가, Clauday 작업 행동은 본 AGENTS.md 가.
+
+## 11. CI 실패 자동 복구 (Webhook 기반)
+
+### Webhook 수신 시 자동 절차
+
+GitHub Action 실패 시 → Dooray 웹훅 → 본 채팅으로 알림 → 자동 분석 → 수정 PR
+
+**수신 데이터:**
+```json
+{
+  "text": "🚨 CI 실패 알림",
+  "workflow_name": "...",
+  "conclusion": "failure",
+  "branch": "...",
+  "commit": "...",
+  "html_url": "..."
+}
+```
+
+### 자동 복구 워크플로우
+
+**Step 1 — 로그 분석**
+```bash
+# 실패한 워크플로우 로그 확인
+gh run view <run-id> --log
+# 또는
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/limtaewon/dooray-claude-gui-assistance/actions/runs/<run-id>/logs
+```
+
+**Step 2 — 실패 원인 분류**
+- **L0**: 간단한 문법 오류 → 즉시 수정
+- **L1**: 테스트 실패 → 코드 수정 + 테스트 보강
+- **L2**: 빌드 실패 (의존성 등) → package.json 수정
+- **L3**: 아키텍처 문제 → ADR 작성 후 대규모 수정
+
+**Step 3 — 수정 브랜치 생성**
+```bash
+git checkout <failed-branch>
+git pull origin <failed-branch>
+git checkout -b fix/<original-branch>-<timestamp>
+```
+
+**Step 4 — 패치 적용**
+- 로그 기반 원인 파악
+- 최소 수정으로 문제 해결
+- **동일한 테스트 재실행하여 통과 확인**
+
+**Step 5 — 재 PR 생성**
+```bash
+git commit -m "fix: <원인> 수정 (auto-fix from CI failure #<original-pr>)"
+git push -u origin fix/<original-branch>-<timestamp>
+gh pr create \
+  --title "fix: CI 실패 수정 (<원인>)" \
+  --body "## 자동 수정 PR\n\n**원본 PR**: #<original-pr>\n**실패 워크플로우**: <workflow-name>\n\n### 수정 내용\n- <구체적 수정 사항>\n\n### 테스트\n- [ ] 동일 워크플로우 통과 확인\n\n---\n*이 PR 은 Ultra Agent 가 CI 실패를 감지하고 자동 생성했습니다.*" \
+  --base main
+```
+
+### 회신 템플릿
+
+```
+🔧 CI 실패 감지 — <workflow-name>
+📊 원인: <구체적 원인>
+✅ 수정 완료 — fix/<branch>-<timestamp>
+🔗 PR: <pr-url>
+```
+
+### 주의사항
+
+- **동일 실패 2 회 연속** → L2/L3 으로 에스컬레이션, 사용자 결정 요청
+- **의존성/환경 문제** → 사용자에게 수동 개입 요청
+- **플래키 테스트** → 테스트 자체의 결정론성 문제 분석 후 보고
