@@ -1,4 +1,4 @@
-import type { EnrichedEnrichedFeedbackPayload, FeedbackSubmitResult } from '../../shared/types/feedback'
+import type { EnrichedFeedbackPayload, FeedbackSubmitResult } from '../../shared/types/feedback'
 
 function getHookUrl(): string {
   const url = process.env.VITE_FEEDBACK_HOOK_URL || process.env.FEEDBACK_HOOK_URL
