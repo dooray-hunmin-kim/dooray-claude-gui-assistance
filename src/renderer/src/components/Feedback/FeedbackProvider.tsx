@@ -224,7 +224,7 @@ function FeedbackProvider({ children }: { children: ReactNode }): JSX.Element {
                 ? '원하는 기능을 설명해주세요.'
                 : '개선할 점을 제안해주세요.'}
               <div className="mt-1 text-text-tertiary">
-                전송 시 Ultra Agent 가 자동으로 분석 → 브랜치 생성 → 구현 → 테스트 → PR 생성합니다. 5~30분 후 PR/Issue 링크가 두레이 메신저로 회신됩니다.
+                전송 시 Ultra Agent 가 자동으로 분석 → 브랜치 → 구현 → 테스트 → PR 생성까지 진행합니다.
               </div>
             </div>
 
