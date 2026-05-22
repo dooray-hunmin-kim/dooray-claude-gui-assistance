@@ -352,9 +352,29 @@ git tag v1.5.5
 git push origin v1.5.5
 ```
 
-`.github/workflows/release.yml` 이 macOS(dmg, zip) + Windows(exe) 빌드 → GitHub Release 자동 업로드.
+### Windows — 자동
 
-> Apple Developer 시크릿(`MAC_CSC_LINK`, `APPLE_ID` 등) 등록되어 있으면 자동 서명. 없으면 unsigned dmg.
+`.github/workflows/release.yml` 이 태그 push(`vX.Y.Z`) 시 자동으로 Windows exe 빌드 + GitHub Release 첨부.
+
+### macOS — 수동 (로컬 빌드 후 업로드)
+
+Apple Developer 인증서 부재로 GitHub Actions 의 macOS runner 에서 dmg 빌드가 실패 (codesign 권한 충돌). macOS 빌드는 매 릴리즈마다 로컬 Mac 에서:
+
+```bash
+# 1. 태그 체크아웃
+git fetch --tags
+git checkout v<버전>
+
+# 2. 빌드 (로컬 keychain 으로 ad-hoc 서명 자동)
+npm install
+npm run dist
+
+# 3. release/Clauday-<버전>.dmg 생성 확인 후 업로드
+gh release upload v<버전> release/*.dmg
+# 또는 GitHub Release UI 에서 드래그 업로드
+```
+
+> 정식 Apple Developer 인증서 도입 시 본 절차 제거 가능. 관련 ADR: `feature/mac-build/local-build-manual/adr.md`
 
 ---
 
