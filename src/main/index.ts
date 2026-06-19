@@ -291,6 +291,17 @@ const skillStore = new SkillStore()
 const gitService = new GitService()
 const analyticsService = new AnalyticsService()
 
+// Harness Studio (v1.7) — HarnessService 인스턴스화는 app.getPath('userData') 가 필요하므로
+// createWindow() 내부 또는 app.whenReady() 이후에 생성한다. 여기서는 지연 초기화용 레퍼런스만 선언.
+let _harnessService: import('./harness/HarnessService').HarnessService | null = null
+function getHarnessService(): import('./harness/HarnessService').HarnessService {
+  if (!_harnessService) {
+    const { HarnessService } = require('./harness/HarnessService') as typeof import('./harness/HarnessService')
+    _harnessService = new HarnessService(app.getPath('userData'), aiService)
+  }
+  return _harnessService
+}
+
 // (이전에는 브리핑/보고서 사이에 cachedTasks를 공유했지만, 두레이 측에서 상태가
 // 바뀐 뒤에도 stale 데이터가 남아 보고서가 옛 상태를 출력하는 버그가 있었다.
 // 이제 매 호출 시 항상 fresh fetch한다 — 이슈 #5)
@@ -1606,6 +1617,61 @@ ${data}`,
       return feedbackService.submit(enriched)
     }
   )
+
+  // ── Harness Studio (v1.7) ───────────────────────────────────────────────────
+
+  /**
+   * HARNESS_SCAN — 번들 경로 정적 스캔. AI 없음, 즉시 반환.
+   * { path: string } 또는 { pickDialog: true } 로 호출.
+   * pickDialog 시 폴더 선택 다이얼로그를 열어 경로를 받는다.
+   */
+  ipcMain.handle(IPC_CHANNELS.HARNESS_SCAN, async (_, args: { path?: string; pickDialog?: boolean }) => {
+    let bundlePath: string | null = args?.path || null
+    if (args?.pickDialog) {
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        title: '번들 폴더 선택'
+      })
+      if (result.canceled || result.filePaths.length === 0) return null
+      bundlePath = result.filePaths[0]
+    }
+    if (!bundlePath) return null
+    return getHarnessService().scan(bundlePath)
+  })
+
+  /**
+   * HARNESS_DISCOVER — ~/.claude/skills/* 자동 발견. 정적, AI 없음.
+   */
+  ipcMain.handle(IPC_CHANNELS.HARNESS_DISCOVER, async () => {
+    return getHarnessService().discover()
+  })
+
+  /**
+   * HARNESS_NORMALIZE — 번들 경로 AI 정규화. 캐시 hit 시 즉시, miss 시 Sonnet 호출.
+   * { path: string; force?: boolean; requestId?: string }
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.HARNESS_NORMALIZE,
+    async (_, args: { path: string; force?: boolean; requestId?: string }) => {
+      return getHarnessService().normalize(args.path, args.force ?? false, args.requestId)
+    }
+  )
+
+  /**
+   * HARNESS_CACHE_CLEAR — 캐시 삭제. path 지정 시 해당 번들만, 생략 시 전체.
+   * { path?: string }
+   */
+  ipcMain.handle(IPC_CHANNELS.HARNESS_CACHE_CLEAR, (_, args?: { path?: string }) => {
+    const cleared = getHarnessService().clearCache(args?.path)
+    return { cleared }
+  })
+
+  /**
+   * HARNESS_LIST_CACHED — 캐시된 번들 목록 반환. 최근 정규화 순.
+   */
+  ipcMain.handle(IPC_CHANNELS.HARNESS_LIST_CACHED, () => {
+    return getHarnessService().listCached()
+  })
 }
 
 /**

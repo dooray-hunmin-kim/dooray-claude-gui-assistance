@@ -61,6 +61,12 @@ function subscribeCaldavSyncProgress(cb: (p: SyncProgressPayload) => void): () =
   return () => { caldavSyncHandlers.delete(cb) }
 }
 import type { McpServerConfig } from '../shared/types/mcp'
+import type {
+  RawBundleSummary,
+  HarnessModel,
+  DiscoveredHarness,
+  CachedHarnessEntry
+} from '../shared/types/harness'
 import type { Skill, SkillSaveRequest } from '../shared/types/skills'
 import type { UsageQueryParams, UsageSummary } from '../shared/types/usage'
 import type {
@@ -658,6 +664,42 @@ const api = {
       callback(payload)
     ipcRenderer.on(IPC_CHANNELS.CONFIG_CHANGED, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.CONFIG_CHANGED, handler)
+  },
+
+  // Harness Studio (v1.7)
+  harness: {
+    /**
+     * 번들 경로를 정적으로 스캔한다. AI 없음, 즉시 반환.
+     * pickDialog=true 로 호출하면 폴더 선택 다이얼로그를 연다.
+     */
+    scan: (args: { path?: string; pickDialog?: boolean }): Promise<RawBundleSummary | null> =>
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SCAN, args),
+
+    /**
+     * ~/.claude/skills/* 를 자동 발견한다. 정적, AI 없음.
+     */
+    discover: (): Promise<DiscoveredHarness[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_DISCOVER),
+
+    /**
+     * 번들 경로를 AI(Sonnet) 로 정규화해 HarnessModel 을 반환한다.
+     * 캐시 hit 시 즉시, force=true 면 재정규화.
+     * requestId 를 지정하면 AI_PROGRESS 이벤트로 진행률을 받을 수 있다.
+     */
+    normalize: (args: { path: string; force?: boolean; requestId?: string }): Promise<HarnessModel> =>
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_NORMALIZE, args),
+
+    /**
+     * 캐시를 삭제한다. path 지정 시 해당 번들만, 생략 시 전체.
+     */
+    clearCache: (args?: { path?: string }): Promise<{ cleared: number }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_CACHE_CLEAR, args),
+
+    /**
+     * 캐시된 번들 목록을 반환한다 (최근 정규화 순).
+     */
+    listCached: (): Promise<CachedHarnessEntry[]> =>
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_LIST_CACHED)
   }
 }
 
