@@ -293,6 +293,16 @@ function SkillsManager(): JSX.Element {
     return list
   }, [skills, search])
 
+  // 공유(위키) 탭 검색 — 이름/본문 기준 필터
+  const filteredWikiItems = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return wikiItems
+    return wikiItems.filter((i) =>
+      i.name.toLowerCase().includes(q) ||
+      (i.content || '').toLowerCase().includes(q)
+    )
+  }, [wikiItems, search])
+
   const handleEditorChange = (value: string): void => {
     setEditorContent(value)
     setIsDirty(true)
@@ -493,14 +503,14 @@ function SkillsManager(): JSX.Element {
             <button
               type="button"
               onClick={() => {
-                const all = tab === 'mine' ? filteredSkills.map((s) => s.filename) : wikiItems.map((i) => i.pageId)
+                const all = tab === 'mine' ? filteredSkills.map((s) => s.filename) : filteredWikiItems.map((i) => i.pageId)
                 if (selected.size === all.length) setSelected(new Set())
                 else setSelected(new Set(all))
               }}
               className="text-[11px] text-clauday-orange hover:underline"
             >
               {(() => {
-                const all = tab === 'mine' ? filteredSkills.length : wikiItems.length
+                const all = tab === 'mine' ? filteredSkills.length : filteredWikiItems.length
                 return selected.size === all && all > 0 ? '전체 해제' : '전체 선택'
               })()}
             </button>
@@ -541,7 +551,7 @@ function SkillsManager(): JSX.Element {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tab === 'mine' ? '이름·내용 검색...' : '이름 검색...'}
+              placeholder={tab === 'mine' ? '이름·내용 검색...' : '공유 스킬 이름·내용 검색...'}
               className="ds-input sm"
               style={{ paddingLeft: 28, paddingRight: 28 }}
             />
@@ -601,9 +611,13 @@ function SkillsManager(): JSX.Element {
               <p className="text-sm font-medium text-text-primary mb-1">아직 공유된 스킬이 없습니다</p>
               <p className="text-[11px] text-text-tertiary">'내 스킬 공유하기' 버튼으로 위키에 스킬을 업로드해보세요</p>
             </div>
+          ) : filteredWikiItems.length === 0 ? (
+            <div className="py-12 text-center text-[12px] text-text-tertiary">
+              "{search}"에 일치하는 공유 스킬이 없습니다
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {wikiItems.map((item) => {
+              {filteredWikiItems.map((item) => {
                 const isSelected = selectMode && selected.has(item.pageId)
                 const description = extractFrontmatterDescription(item.content)
                 const openPreview = (): void => {
