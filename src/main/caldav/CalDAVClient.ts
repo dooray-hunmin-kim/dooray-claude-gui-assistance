@@ -481,6 +481,7 @@ export class CalDAVClient {
     
     const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href
     const auth = basicAuthHeader()
+    console.log('[CalDAV PUT updateEvent] req ifMatch=', !!input.etag, 'summary=', input.summary, 'bodyLen=', newIcs.length)
     const resp = await fetch(absUrl, {
       method: 'PUT',
       headers: {
@@ -490,12 +491,28 @@ export class CalDAVClient {
       },
       body: newIcs
     })
+    const respBody = await resp.text().catch(() => '')
     if (!resp.ok) {
-      const body = await resp.text().catch(() => '')
-      throw new Error(`CalDAV PUT 실패: ${resp.status} ${body.slice(0, 200)}`)
+      throw new Error(`CalDAV PUT 실패: ${resp.status} ${respBody.slice(0, 200)}`)
     }
-    const newEtag = resp.headers.get('etag') ?? undefined
-    console.log('[CalDAV PUT updateEvent]', absUrl, 'status=', resp.status, 'newEtag=', newEtag)
+    let newEtag = resp.headers.get('etag') ?? undefined
+    console.log('[CalDAV PUT updateEvent]', absUrl, 'status=', resp.status, 'etagHdr=', newEtag, 'respBodyLen=', respBody.length)
+
+    // 진단 + 보정: 두레이는 PUT 응답에 ETag 를 안 주는 경우가 있어, 직후 GET 으로 실제 반영 여부 확인.
+    // 서버가 정상 반영했다면 GET 의 SUMMARY 가 새 값이고 새 etag 를 받는다. (안 바뀌면 서버가 PUT 을 무시한 것)
+    try {
+      const verify = await fetch(absUrl, { method: 'GET', headers: { Authorization: auth } })
+      const vtext = await verify.text().catch(() => '')
+      const vparsed = parseICal(vtext)
+      const vEtag = verify.headers.get('etag') ?? undefined
+      console.log('[CalDAV PUT verify] GET status=', verify.status,
+        'serverSummary=', vparsed?.summary, 'serverSeq=', vparsed?.sequence,
+        'applied=', vparsed?.summary === input.summary, 'etag=', vEtag)
+      // PUT 이 etag 를 안 줬으면 GET 의 etag 를 사용 (incrementalSync 가 변경을 감지하도록)
+      if (!newEtag && vEtag) newEtag = vEtag
+    } catch (e) {
+      console.warn('[CalDAV PUT verify] GET 실패:', e)
+    }
     return { etag: newEtag?.replace(/^["']|["']$/g, '') }
   }
 
