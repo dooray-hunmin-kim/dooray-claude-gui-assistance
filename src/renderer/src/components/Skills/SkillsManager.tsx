@@ -36,6 +36,8 @@ function SkillsManager(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<FilterTab>('mine')
+  // 공유소 탭에서 "내 스킬 공유하기" → 로컬 스킬 picker 모달
+  const [sharePickerOpen, setSharePickerOpen] = useState(false)
 
   // 다중 선택 (내 스킬 탭 한정)
   const [selectMode, setSelectMode] = useState(false)
@@ -576,7 +578,7 @@ function SkillsManager(): JSX.Element {
                 leftIcon={<RefreshCw size={12} className={sharedLoading ? 'animate-spin' : ''} />}>
                 새로고침
               </Button>
-              <Button variant="primary" onClick={() => setTab('mine')} leftIcon={<Upload size={13} />}>
+              <Button variant="primary" onClick={() => setSharePickerOpen(true)} leftIcon={<Upload size={13} />}>
                 내 스킬 공유하기
               </Button>
             </>
@@ -845,6 +847,47 @@ function SkillsManager(): JSX.Element {
       {creating && (
         <SkillCreateModal onClose={() => setCreating(false)} onCreated={handleCreated} />
       )}
+
+      {/* 공유소 탭 — "내 스킬 공유하기" picker. 탭 이동 없이 로컬 스킬을 골라 바로 업로드. */}
+      <Modal
+        open={sharePickerOpen}
+        onClose={() => setSharePickerOpen(false)}
+        width="min(560px, 92vw)"
+        icon={<Upload size={14} className="text-clauday-blue" />}
+        title="내 스킬 공유하기"
+      >
+        <div className="p-4">
+          <p className="text-[11px] text-text-tertiary mb-3">
+            공유소에 올릴 내 스킬을 선택하세요. 업로드된 스킬은 동료가 다운로드할 수 있습니다.
+          </p>
+          {skills.length === 0 ? (
+            <div className="py-8 text-center text-xs text-text-secondary">공유할 내 스킬이 없습니다.</div>
+          ) : (
+            <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
+              {skills.map((skill) => {
+                const mine = sharedSkills.find((s) => s.isMine && s.filename === skill.filename)
+                const busy = uploadingSkill === skill.filename
+                return (
+                  <div key={skill.filename}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-surface border border-bg-border">
+                    <Sparkles size={13} className="text-clauday-blue flex-shrink-0" />
+                    <span className="text-sm text-text-primary truncate flex-1" title={skill.name}>{skill.name}</span>
+                    {mine && <span className="ds-chip neutral flex-shrink-0">공유됨</span>}
+                    <Button
+                      variant={mine ? 'secondary' : 'primary'}
+                      onClick={() => handleShareUpload(skill)}
+                      disabled={!!uploadingSkill}
+                      leftIcon={busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                    >
+                      {mine ? '업데이트' : '공유'}
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       {/* Editor modal (내 스킬 편집) */}
       <Modal
