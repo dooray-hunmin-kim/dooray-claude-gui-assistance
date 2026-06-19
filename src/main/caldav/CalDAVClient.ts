@@ -1,7 +1,7 @@
 import { createDAVClient } from 'tsdav'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
-import { parseICal, buildICal, patchDateTimeInIcs } from './ical'
+import { parseICal, buildICal, patchDateTimeInIcs, patchEventFields } from './ical'
 
 export interface SyncProgress {
   calendarUrl: string
@@ -486,26 +486,17 @@ export class CalDAVClient {
     end: string
     allDay: boolean
   }): Promise<{ etag?: string }> {
-    const parsed = parseICal(input.existingIcs)
-    if (!parsed) throw new Error('기존 ICS 파싱 실패')
+    if (!parseICal(input.existingIcs)) throw new Error('기존 ICS 파싱 실패')
 
-    // 깔끔한 표준 VEVENT 로 재구성 — 두레이 고유 X-*/VTIMEZONE 을 그대로 PUT 하면 500 이 남.
-    // (편집이 서버에 안 먹히던 진짜 원인은 If-Match etag 따옴표 누락이었고, 그건 quoteEtag 로 해결.)
-    const newIcs = buildICal({
-      uid: parsed.uid,
+    // 원본 ICS 의 두레이 고유 속성(X-DOORAY-* 등)을 보존한 채 편집 필드만 교체.
+    // (buildICal 재구성은 X-DOORAY-* 누락으로 두레이가 200 으로 받고도 반영 안 함. VTIMEZONE 은 제거해 500 회피.)
+    const newIcs = patchEventFields(input.existingIcs, {
       summary: input.summary,
       description: input.description,
       location: input.location,
       start: input.start,
       end: input.end,
-      allDay: input.allDay,
-      createdAt: parsed.createdAt,
-      rrule: parsed.rrule,
-      attendees: parsed.attendees,
-      organizer: parsed.organizer,
-      alarms: parsed.alarms,
-      status: parsed.status,
-      url: parsed.url
+      allDay: input.allDay
     })
     
     const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href

@@ -271,6 +271,72 @@ export function patchDateTimeInIcs(ics: string, input: { start: string; end: str
 }
 
 /**
+ * 상세 편집용 — 원본 ICS 의 편집 필드(SUMMARY/DESCRIPTION/LOCATION/DTSTART/DTEND/DTSTAMP)만 교체하고
+ * 두레이 고유 속성(X-DOORAY-* 등)·UID·CREATED·RRULE·ATTENDEE·VALARM 은 보존한다.
+ *
+ * Why: 두레이 CalDAV 는 buildICal 로 재구성한(=X-DOORAY-* 누락된) 본문을 PUT 하면 200 으로 받아주면서도
+ * 실제 일정에는 반영하지 않는다(=수정 안 먹힘). 원본 속성을 보존해야 서버가 어떤 레코드의 갱신인지 매핑한다.
+ * 단, 새 DTSTART/DTEND 는 UTC(또는 VALUE=DATE)로 쓰므로 원본의 VTIMEZONE/TZID 는 orphan 이 되어 서버가
+ * 500 을 낸다 → VTIMEZONE 컴포넌트를 함께 제거해 ICS 일관성을 유지한다.
+ */
+export function patchEventFields(
+  ics: string,
+  input: { summary: string; description?: string; location?: string; start: string; end: string; allDay: boolean }
+): string {
+  const allDay = !!input.allDay
+  const fmtTimed = (iso: string): string => {
+    const d = new Date(iso)
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
+  }
+  const fmtAllDay = (iso: string, dayOffset = 0): string => {
+    const d = new Date(iso)
+    if (dayOffset !== 0) d.setDate(d.getDate() + dayOffset)
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`
+  }
+  const now = fmtTimed(new Date().toISOString())
+  const dtstartLine = allDay ? `DTSTART;VALUE=DATE:${fmtAllDay(input.start)}` : `DTSTART:${fmtTimed(input.start)}`
+  const dtendLine = allDay ? `DTEND;VALUE=DATE:${fmtAllDay(input.end, 1)}` : `DTEND:${fmtTimed(input.end)}`
+
+  const lines = unfoldLines(ics)
+  // VEVENT top-level 에서 교체할 키 (VALARM 내부는 제외)
+  const TOP_KEYS = ['DTSTART', 'DTEND', 'DTSTAMP', 'SUMMARY', 'LOCATION', 'DESCRIPTION']
+  const isTopKey = (l: string): boolean =>
+    TOP_KEYS.some((k) => l === k || l.startsWith(`${k}:`) || l.startsWith(`${k};`))
+
+  const newProps = [
+    `DTSTAMP:${now}`,
+    dtstartLine,
+    dtendLine,
+    `SUMMARY:${escapeText(input.summary)}`
+  ]
+  if (input.location) newProps.push(`LOCATION:${escapeText(input.location)}`)
+  if (input.description) newProps.push(`DESCRIPTION:${escapeText(input.description)}`)
+
+  const result: string[] = []
+  let inEvent = false, inAlarm = false, inTz = false
+  for (const l of lines) {
+    // VTIMEZONE 컴포넌트는 통째로 제거 (UTC/DATE 로 쓰므로 orphan → 서버 500 방지)
+    if (l === 'BEGIN:VTIMEZONE') { inTz = true; continue }
+    if (l === 'END:VTIMEZONE') { inTz = false; continue }
+    if (inTz) continue
+
+    if (l === 'BEGIN:VEVENT') {
+      inEvent = true
+      result.push(l)
+      result.push(...newProps) // VEVENT 시작 직후 교체 속성 주입
+      continue
+    }
+    if (l === 'END:VEVENT') { inEvent = false; result.push(l); continue }
+    if (l === 'BEGIN:VALARM') { inAlarm = true; result.push(l); continue }
+    if (l === 'END:VALARM') { inAlarm = false; result.push(l); continue }
+    if (inEvent && !inAlarm && isTopKey(l)) continue // 교체 대상 옛 속성 제거
+    result.push(l)
+  }
+  if (!result.includes('BEGIN:VEVENT')) return ics
+  return result.join('\r\n')
+}
+
+/**
  * 여러 ICS(VCALENDAR/VEVENT 묶음)에서 VEVENT 블록만 추출해 단일 VCALENDAR 로 합산.
  * 캘린더 내보내기에 사용.
  */

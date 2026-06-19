@@ -1,5 +1,48 @@
 import { describe, it, expect } from 'vitest'
-import { parseICal, buildICal, bundleICal, patchDateTimeInIcs } from './ical'
+import { parseICal, buildICal, bundleICal, patchDateTimeInIcs, patchEventFields } from './ical'
+
+describe('patchEventFields — 원본 보존 + VTIMEZONE 제거', () => {
+  const original = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Seoul',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    'UID:4358@dooray.com',
+    'CREATED:20260101T000000Z',
+    'DTSTAMP:20260101T000000Z',
+    'DTSTART;TZID=Asia/Seoul:20260619T153000',
+    'DTEND;TZID=Asia/Seoul:20260619T163000',
+    'SUMMARY:TEST',
+    'X-DOORAY-CALENDAR-ID:cal-xyz',
+    'BEGIN:VALARM',
+    'TRIGGER:-PT15M',
+    'DESCRIPTION:알림',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n')
+
+  it('SUMMARY 교체 + X-DOORAY/UID 보존, VTIMEZONE/TZID 제거', () => {
+    const out = patchEventFields(original, {
+      summary: 'TEST232', start: '2026-06-19T06:30:00Z', end: '2026-06-19T07:30:00Z', allDay: false
+    })
+    expect(out).toContain('SUMMARY:TEST232')
+    expect(out).toContain('X-DOORAY-CALENDAR-ID:cal-xyz')
+    expect(out).toContain('UID:4358@dooray.com')
+    // VTIMEZONE 컴포넌트 제거 (orphan → 500 방지)
+    expect(out).not.toContain('BEGIN:VTIMEZONE')
+    expect(out).not.toContain('TZID=Asia/Seoul')
+    // 새 DTSTART 는 UTC
+    expect(out).toContain('DTSTART:20260619T063000Z')
+    // VALARM 내부 DESCRIPTION 은 보존
+    expect(out).toContain('BEGIN:VALARM')
+    expect(out).toContain('DESCRIPTION:알림')
+    // SUMMARY 가 중복되지 않음
+    expect(out.match(/SUMMARY:/g)?.length).toBe(1)
+  })
+})
 
 describe('parseICal — 기본 VEVENT', () => {
   it('UID/SUMMARY/DTSTART/DTEND 가 있으면 파싱한다', () => {
