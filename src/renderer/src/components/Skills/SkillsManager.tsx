@@ -38,6 +38,8 @@ function SkillsManager(): JSX.Element {
   const [sharePickerOpen, setSharePickerOpen] = useState(false)
   // picker 다중 선택 — filename Set
   const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set())
+  // picker 내부 검색어
+  const [pickerSearch, setPickerSearch] = useState('')
 
   // 다중 선택 (내 스킬 탭 한정)
   const [selectMode, setSelectMode] = useState(false)
@@ -303,6 +305,17 @@ function SkillsManager(): JSX.Element {
     )
   }, [wikiItems, search])
 
+  // "내 스킬 공유하기" picker 내부 검색 — 이름/파일명 기준 필터
+  const pickerVisibleSkills = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase()
+    if (!q) return skills
+    return skills.filter((s) =>
+      s.name.toLowerCase().includes(q) || s.filename.toLowerCase().includes(q)
+    )
+  }, [skills, pickerSearch])
+  const pickerAllVisibleSelected = pickerVisibleSkills.length > 0 &&
+    pickerVisibleSkills.every((s) => pickerSelected.has(s.filename))
+
   const handleEditorChange = (value: string): void => {
     setEditorContent(value)
     setIsDirty(true)
@@ -489,7 +502,7 @@ function SkillsManager(): JSX.Element {
               >
                 {selectMode ? '선택 종료' : '선택'}
               </Button>
-              <Button variant="primary" onClick={() => { setPickerSelected(new Set()); setSharePickerOpen(true) }} leftIcon={<Upload size={13} />}>
+              <Button variant="primary" onClick={() => { setPickerSelected(new Set()); setPickerSearch(''); setSharePickerOpen(true) }} leftIcon={<Upload size={13} />}>
                 내 스킬 공유하기
               </Button>
             </>
@@ -696,11 +709,15 @@ function SkillsManager(): JSX.Element {
         footer={skills.length > 0 ? (
           <div className="flex items-center justify-between w-full gap-2">
             <button
-              onClick={() => setPickerSelected((prev) =>
-                prev.size === skills.length ? new Set() : new Set(skills.map((s) => s.filename))
-              )}
-              className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1">
-              {pickerSelected.size === skills.length ? '전체 해제' : '전체 선택'}
+              onClick={() => setPickerSelected((prev) => {
+                const next = new Set(prev)
+                if (pickerAllVisibleSelected) pickerVisibleSkills.forEach((s) => next.delete(s.filename))
+                else pickerVisibleSkills.forEach((s) => next.add(s.filename))
+                return next
+              })}
+              disabled={pickerVisibleSkills.length === 0}
+              className="text-[11px] text-text-secondary hover:text-text-primary px-2 py-1 disabled:opacity-40">
+              {pickerAllVisibleSelected ? '전체 해제' : '전체 선택'}
             </button>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="md" onClick={() => setSharePickerOpen(false)} disabled={uploadProgress !== null}>취소</Button>
@@ -730,8 +747,29 @@ function SkillsManager(): JSX.Element {
           {skills.length === 0 ? (
             <div className="py-8 text-center text-xs text-text-secondary">공유할 내 스킬이 없습니다.</div>
           ) : (
+            <>
+              {/* picker 내부 검색 */}
+              <div className="relative mb-2">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
+                <input
+                  type="text"
+                  value={pickerSearch}
+                  onChange={(e) => setPickerSearch(e.target.value)}
+                  placeholder="스킬 이름 검색..."
+                  className="w-full pl-8 pr-7 py-1.5 rounded-lg bg-bg-surface border border-bg-border text-sm text-text-primary placeholder-text-tertiary focus:outline-none focus:border-clauday-blue"
+                />
+                {pickerSearch && (
+                  <button onClick={() => setPickerSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-primary">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              {pickerVisibleSkills.length === 0 ? (
+                <div className="py-8 text-center text-xs text-text-secondary">"{pickerSearch}"에 일치하는 스킬이 없습니다.</div>
+              ) : (
             <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
-              {skills.map((skill) => {
+              {pickerVisibleSkills.map((skill) => {
                 // 활성 위키에 이미 공유된 스킬인지 확인
                 const alreadyShared = wikiItems.some((i) => i.name === skill.name)
                 const checked = pickerSelected.has(skill.filename)
@@ -753,6 +791,8 @@ function SkillsManager(): JSX.Element {
                 )
               })}
             </div>
+              )}
+            </>
           )}
         </div>
       </Modal>
