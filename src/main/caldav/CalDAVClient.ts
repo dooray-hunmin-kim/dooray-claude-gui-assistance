@@ -83,9 +83,12 @@ function basicAuthHeader(): string {
  */
 function quoteEtag(etag?: string): string | undefined {
   if (!etag) return undefined
-  const t = etag.trim()
+  // 이미 캐시에 &quot; 형태로 잘못 저장된 etag 도 복원 (구버전 파싱 잔재)
+  let t = etag.trim().replace(/&quot;/gi, '"').replace(/&#34;/g, '"')
   if (!t) return undefined
-  return /^(W\/)?".*"$/.test(t) ? t : `"${t}"`
+  if (/^(W\/)?".*"$/.test(t)) return t
+  t = t.replace(/^["']|["']$/g, '')
+  return `"${t}"`
 }
 
 function fmtCalDavTime(iso: string): string {
@@ -106,21 +109,28 @@ function parseMultiStatus(xml: string): MultiStatusEntry[] {
   for (const block of blocks) {
     const hrefMatch = block.match(/<(?:[a-z0-9]+:)?href[\s>]?([^<]*?)<\/(?:[a-z0-9]+:)?href>/i)
     const etagMatch = block.match(/<(?:[a-z0-9]+:)?getetag[\s>]?([^<]*?)<\/(?:[a-z0-9]+:)?getetag>/i)
-    const dataMatch = block.match(/<(?:[a-z0-9]+:)?calendar-data[\s>]([\s\S]*?)<\/(?:[a-z0-9]+:)?calendar-data>/i)
+    // 여는 태그의 속성(xmlns 등)을 [^>]*> 로 모두 소비해야 ICS 본문에 `xmlns='...'>` 가 안 섞임.
+    // (이전 [\s>] 는 속성 있는 <calendar-data xmlns='...'> 에서 속성+'>' 를 본문으로 잘못 캡쳐 → PUT 시 500)
+    const dataMatch = block.match(/<(?:[a-z0-9]+:)?calendar-data\b[^>]*>([\s\S]*?)<\/(?:[a-z0-9]+:)?calendar-data>/i)
     let data: string | undefined
     if (dataMatch) {
       data = dataMatch[1]
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
-        .replace(/&amp;/g, '&')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
         .trim()
     }
     if (hrefMatch) {
+      // etag 의 따옴표가 XML 엔티티(&quot;)로 올 수 있어 먼저 디코드 후 양끝 따옴표 제거.
+      let etag: string | undefined
+      if (etagMatch) {
+        etag = etagMatch[1].replace(/&quot;/gi, '"').replace(/&#34;/g, '"').trim().replace(/^["']|["']$/g, '').trim()
+      }
       out.push({
         href: hrefMatch[1].trim(),
-        etag: etagMatch ? etagMatch[1].replace(/^["']|["']$/g, '').trim() : undefined,
+        etag,
         calendarData: data
       })
     }

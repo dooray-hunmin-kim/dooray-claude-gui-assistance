@@ -263,11 +263,18 @@ export function patchDateTimeInIcs(ics: string, input: { start: string; end: str
     return text.replace(/(BEGIN:VEVENT\r?\n)/, `$1${newLine}\r\n`)
   }
 
-  let out = ics
+  // 구버전 파싱 잔재로 BEGIN:VCALENDAR 앞에 XML 쓰레기(xmlns='...'>)가 붙은 캐시 방어 — 잘라낸다.
+  let out = stripIcsPrefix(ics)
   out = replaceLine(out, 'DTSTART', dtstartLine)
   out = replaceLine(out, 'DTEND', dtendLine)
   out = replaceLine(out, 'DTSTAMP', dtstampLine)
   return out
+}
+
+/** ICS 본문 앞에 섞인 비-iCalendar 텍스트(XML 태그 잔재 등)를 제거 — BEGIN:VCALENDAR 부터 반환. */
+export function stripIcsPrefix(ics: string): string {
+  const i = ics.indexOf('BEGIN:VCALENDAR')
+  return i > 0 ? ics.slice(i) : ics
 }
 
 /**
@@ -314,11 +321,13 @@ export function patchEventFields(
     return newLine ? text.replace(/(BEGIN:VEVENT\r?\n)/, `$1${newLine}\r\n`) : text
   }
 
+  // 구버전 파싱 잔재(BEGIN:VCALENDAR 앞 XML 쓰레기) 방어 후 처리.
+  const src = stripIcsPrefix(ics)
   // VALARM 내부에도 DESCRIPTION 이 있으므로, 교체는 첫 BEGIN:VALARM 이전 구간(VEVENT 본문)으로 한정.
-  const valarmIdx = ics.search(/^BEGIN:VALARM/m)
-  const splitAt = valarmIdx >= 0 ? valarmIdx : ics.length
-  let head = ics.slice(0, splitAt)
-  const tail = ics.slice(splitAt)
+  const valarmIdx = src.search(/^BEGIN:VALARM/m)
+  const splitAt = valarmIdx >= 0 ? valarmIdx : src.length
+  let head = src.slice(0, splitAt)
+  const tail = src.slice(splitAt)
 
   head = replaceLine(head, 'DTSTART', dtstartLine)
   head = replaceLine(head, 'DTEND', dtendLine)

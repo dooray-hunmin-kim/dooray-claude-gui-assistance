@@ -1,5 +1,29 @@
 import { describe, it, expect } from 'vitest'
-import { parseICal, buildICal, bundleICal, patchDateTimeInIcs, patchEventFields } from './ical'
+import { parseICal, buildICal, bundleICal, patchDateTimeInIcs, patchEventFields, stripIcsPrefix } from './ical'
+
+describe('stripIcsPrefix — BEGIN:VCALENDAR 앞 XML 쓰레기 제거', () => {
+  it("xmlns='...'> 잔재를 잘라낸다", () => {
+    const corrupt = "xmlns='urn:ietf:params:xml:ns:caldav'>BEGIN:VCALENDAR\r\nEND:VCALENDAR"
+    expect(stripIcsPrefix(corrupt)).toBe('BEGIN:VCALENDAR\r\nEND:VCALENDAR')
+  })
+  it('정상 ICS 는 그대로 둔다', () => {
+    const ok = 'BEGIN:VCALENDAR\r\nEND:VCALENDAR'
+    expect(stripIcsPrefix(ok)).toBe(ok)
+  })
+
+  it('patchEventFields 가 손상된 캐시(xmlns 접두)도 깨끗하게 PUT 본문 생성', () => {
+    const corrupt = "xmlns='urn:ietf:params:xml:ns:caldav'>" + [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:u@dooray.com',
+      'DTSTART;VALUE=DATE:20260619', 'DTEND;VALUE=DATE:20260620', 'SUMMARY:OLD',
+      'X-DOORAY-CALENDAR-ID:c1', 'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(corrupt, { summary: 'NEW', start: '2026-06-19T00:00:00', end: '2026-06-19T00:00:00', allDay: true })
+    expect(out.startsWith('BEGIN:VCALENDAR')).toBe(true)
+    expect(out).not.toContain('xmlns=')
+    expect(out).toContain('SUMMARY:NEW')
+    expect(out).toContain('X-DOORAY-CALENDAR-ID:c1')
+  })
+})
 
 describe('patchEventFields — 원본 보존 + VTIMEZONE 제거', () => {
   const original = [
