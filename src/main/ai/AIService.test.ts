@@ -405,3 +405,242 @@ describe('AIService.composeMessengerMessage', () => {
     expect(await promise).toContain('회식')
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Harness Studio — normalizeHarness / estimateLevel
+// CLAUDE.md 함정 #2: Mac/Windows 양쪽 platform 분기 테스트 필수
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 정상 HarnessModel JSON 응답 픽스처 */
+const NORMALIZE_OK_RESULT = JSON.stringify({
+  schemaVersion: 1,
+  meta: { name: 'test-bundle', source: '/p', bundleHash: 'abc', kind: 'bundle' },
+  agents: [{ id: 'dev', displayName: 'developer', role: 'Developer', model: 'sonnet', modelSource: 'static', tools: [], reads: [], writes: [] }],
+  levels: [{ id: 'L1', name: 'Standard', agentChain: ['dev'], requiredArtifacts: [] }],
+  triage: { questions: [], rules: [] },
+  artifacts: [],
+  controlFlow: { gates: [], hooks: [], parallelGroups: [], loops: [] },
+  warnings: [],
+  provenance: { 'agents[0].role': 'ai' }
+})
+
+/** 정상 레벨추정 JSON 응답 픽스처 */
+const ESTIMATE_OK_RESULT = JSON.stringify({
+  level: 'L2',
+  answers: ['보안 요구사항 있음 → Yes', '아키텍처 변경 없음 → No'],
+  rationale: 'OAuth 도입이라 보안 요구사항 존재'
+})
+
+function emitResult(resultStr: string): void {
+  lastSpawn!.stdout.emit('data', Buffer.from(JSON.stringify({
+    type: 'result', result: resultStr,
+    duration_ms: 0, session_id: '', is_error: false, total_cost_usd: 0
+  }) + '\n', 'utf8'))
+  lastSpawn!.emitClose(0)
+}
+
+describe('AIService.normalizeHarness — Mac/Windows 플랫폼 분기', () => {
+  const skeleton = {
+    schemaVersion: 1 as const,
+    meta: { name: 'test', source: '/p', bundleHash: 'abc', kind: 'bundle' as const },
+    agents: [], levels: [], triage: { questions: [], rules: [] },
+    artifacts: [], controlFlow: { gates: [], hooks: [], parallelGroups: [], loops: [] },
+    warnings: [], provenance: {}
+  }
+
+  it('Mac — system prompt 가 --append-system-prompt 로 argv 에 포함된다 (캐싱 보존)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.normalizeHarness(skeleton, '번들 원문')
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--append-system-prompt')).toBeGreaterThanOrEqual(0)
+      emitResult(NORMALIZE_OK_RESULT)
+      const result = await promise
+      expect(result.meta.name).toBe('test-bundle')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('Windows — system prompt 가 argv 에서 빠지고 stdin 에 합쳐진다 (cmd escape 회피)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.normalizeHarness(skeleton, '번들 원문')
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      // Windows: --append-system-prompt 와 그 값이 argv 에 없어야 함
+      expect(argv.indexOf('--append-system-prompt')).toBe(-1)
+      // stdin 에 시스템 지시 prefix 가 포함되어야 함
+      const stdinCalls = (lastSpawn!.stdin.write as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      expect(stdinCalls.length).toBeGreaterThan(0)
+      const stdinText = stdinCalls[0][0] as string
+      expect(stdinText).toContain('[시스템 지시 — 반드시 준수]')
+      emitResult(NORMALIZE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('정상 JSON 응답 → HarnessModel 반환', async () => {
+    const svc = new AIService()
+    const promise = svc.normalizeHarness(skeleton, '번들 원문')
+    await Promise.resolve()
+    emitResult(NORMALIZE_OK_RESULT)
+    const result = await promise
+    expect(result.meta.name).toBe('test-bundle')
+    expect(result.agents[0].role).toBe('Developer')
+    expect(result.provenance['agents[0].role']).toBe('ai')
+  })
+
+  it('JSON 추출 실패 → warnings 포함 축소 모델 반환 (throw 금지)', async () => {
+    const svc = new AIService()
+    const promise = svc.normalizeHarness(skeleton, '번들')
+    await Promise.resolve()
+    emitResult('JSON 없는 평문 응답입니다.')
+    const result = await promise
+    // 예외 없이 축소 모델 반환
+    expect(result).toBeDefined()
+    expect(result.warnings.length).toBeGreaterThan(0)
+    expect(result.warnings[0]).toMatch(/파싱 실패|JSON/)
+  })
+
+  it('손상 JSON → warnings 포함 축소 모델 반환 (throw 금지)', async () => {
+    const svc = new AIService()
+    const promise = svc.normalizeHarness(skeleton, '번들')
+    await Promise.resolve()
+    emitResult('{ "broken": [invalid json')
+    const result = await promise
+    expect(result.warnings.length).toBeGreaterThan(0)
+  })
+
+  it('noTools 옵션 적용 — argv 에 --disallowedTools 포함', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.normalizeHarness(skeleton, '번들')
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--disallowedTools')).toBeGreaterThanOrEqual(0)
+      emitResult(NORMALIZE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+})
+
+describe('AIService.estimateLevel — Mac/Windows 플랫폼 분기', () => {
+  const triage = {
+    questions: [{ id: 'Q1', text: '보안 요구사항?', meaning: '보안 여부' }],
+    rules: [{ when: 'Q1=Yes', then: 'L3' as const }]
+  }
+
+  it('Mac — system prompt 가 --append-system-prompt 로 argv 에 포함된다', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.estimateLevel('OAuth 도입', triage)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--append-system-prompt')).toBeGreaterThanOrEqual(0)
+      emitResult(ESTIMATE_OK_RESULT)
+      const result = await promise
+      expect(result.level).toBe('L2')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('Windows — system prompt 가 stdin 으로 합쳐진다', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.estimateLevel('OAuth 도입', triage)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--append-system-prompt')).toBe(-1)
+      const stdinCalls = (lastSpawn!.stdin.write as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      expect(stdinCalls[0][0] as string).toContain('[시스템 지시 — 반드시 준수]')
+      emitResult(ESTIMATE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('정상 JSON 응답 → { level, answers, rationale } 반환', async () => {
+    const svc = new AIService()
+    const promise = svc.estimateLevel('OAuth 도입', triage)
+    await Promise.resolve()
+    emitResult(ESTIMATE_OK_RESULT)
+    const result = await promise
+    expect(result.level).toBe('L2')
+    expect(result.answers).toEqual(['보안 요구사항 있음 → Yes', '아키텍처 변경 없음 → No'])
+    expect(result.rationale).toContain('OAuth')
+  })
+
+  it('알 수 없는 level 값 → L1 기본값', async () => {
+    const svc = new AIService()
+    const promise = svc.estimateLevel('태스크', triage)
+    await Promise.resolve()
+    emitResult(JSON.stringify({ level: 'LX', answers: [], rationale: '알 수 없음' }))
+    const result = await promise
+    expect(result.level).toBe('L1')
+  })
+
+  it('JSON 추출 실패 → 기본값 반환 (throw 금지)', async () => {
+    const svc = new AIService()
+    const promise = svc.estimateLevel('태스크', triage)
+    await Promise.resolve()
+    emitResult('JSON 없는 응답')
+    const result = await promise
+    expect(result.level).toBe('L1')
+    expect(result.answers.length).toBeGreaterThan(0)
+    expect(result.rationale).toBeDefined()
+  })
+
+  it('noTools 옵션 적용 — argv 에 --disallowedTools 포함', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.estimateLevel('태스크', triage)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--disallowedTools')).toBeGreaterThanOrEqual(0)
+      emitResult(ESTIMATE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('harnessEstimate 모델 설정이 적용된다', async () => {
+    const svc = new AIService()
+    svc.setModelConfig({ harnessEstimate: 'opus' } as never)
+    const promise = svc.estimateLevel('태스크', triage)
+    await Promise.resolve()
+    const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+    const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+    const mIdx = argv.indexOf('--model')
+    expect(mIdx).toBeGreaterThanOrEqual(0)
+    expect(argv[mIdx + 1]).toBe('opus')
+    emitResult(ESTIMATE_OK_RESULT)
+    await promise
+  })
+})

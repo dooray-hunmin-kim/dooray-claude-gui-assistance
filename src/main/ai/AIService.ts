@@ -6,6 +6,8 @@ import { BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from '../../shared/types/ipc'
 import type { DoorayTask, DoorayCalendarEvent } from '../../shared/types/dooray'
 import type { AIBriefing, AIReport, AIProgressEvent, AIModelName, AIModelConfig } from '../../shared/types/ai'
+import type { HarnessModel, HarnessTriage, DryRunResult } from '../../shared/types/harness'
+import { buildNormalizeSystemPrompt, buildNormalizeUserPrompt, buildEstimateSystemPrompt, buildEstimateUserPrompt } from '../harness/normalizePrompt'
 
 interface ClaudeCliResult {
   type: string
@@ -1326,6 +1328,175 @@ ${useMcp ? `
       return JSON.parse(raw) as import('../../shared/types/ai-recommend').AIRecommendResult
     } catch {
       return null
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Harness Studio — AI 정규화 / 레벨 추정
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 번들 정적 스켈레톤을 AI(Sonnet)로 보강해 완전한 HarnessModel 을 반환한다.
+   *
+   * Windows/Mac 플랫폼 분기는 runClaudeStream 내부에서 처리된다.
+   * 이 메서드는 argv/stdin 구성 후 runClaudeStream 을 재사용할 뿐,
+   * 분기 코드를 수정하거나 중복 구현하지 않는다 (CLAUDE.md 함정 #1·#3).
+   *
+   * Windows 에서는 큰 system prompt(스키마 강제) 가 stdin 으로 합쳐지므로
+   * 양쪽 플랫폼 테스트가 반드시 필요하다 (CLAUDE.md 함정 #2).
+   *
+   * JSON 파싱 실패 시 throw 하지 않고 부분/축소 모델을 반환한다.
+   * 반환 모델의 warnings 배열에 파싱 오류 사유가 기록된다.
+   *
+   * @param skeleton - 정적 스캐너가 [S] 필드로 채운 부분 HarnessModel
+   * @param rawBundleText - 번들 주요 파일 원문 (AI 분석 대상)
+   * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @returns 완성된 HarnessModel (AI 보강 + provenance 기록)
+   */
+  async normalizeHarness(
+    skeleton: Partial<HarnessModel>,
+    rawBundleText: string,
+    requestId?: string
+  ): Promise<HarnessModel> {
+    const model = this.pickModel('harnessNormalize', 'sonnet')
+    const systemPrompt = buildNormalizeSystemPrompt()
+    const userPrompt = buildNormalizeUserPrompt(skeleton, rawBundleText)
+
+    const args = buildArgs(userPrompt, {
+      model,
+      systemPrompt,
+      maxBudget: '1.0',
+      effort: 'medium',
+      noTools: true  // 정규화는 순수 텍스트 분석 — 도구 불필요
+    })
+
+    const result = await this.runWithProgress(
+      requestId,
+      '번들 AI 정규화 중...',
+      args,
+      { feature: 'harnessNormalize' }
+    )
+
+    const raw = (result.result || '').trim()
+    // 마크다운 코드블록 제거 후 JSON 추출
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+
+    if (!jsonMatch) {
+      // JSON 추출 실패 — 스켈레톤에 경고 추가 후 축소 반환
+      const fallback: HarnessModel = {
+        schemaVersion: 1,
+        meta: (skeleton.meta as HarnessModel['meta']) ?? {
+          name: 'unknown', source: '', bundleHash: '', kind: 'bundle'
+        },
+        agents: skeleton.agents ?? [],
+        levels: skeleton.levels ?? [],
+        triage: skeleton.triage ?? { questions: [], rules: [] },
+        artifacts: skeleton.artifacts ?? [],
+        controlFlow: skeleton.controlFlow ?? { gates: [], hooks: [], parallelGroups: [], loops: [] },
+        warnings: [
+          ...(skeleton.warnings ?? []),
+          `AI 정규화 JSON 파싱 실패 — 원본 응답 앞 400자: ${raw.substring(0, 400)}`
+        ],
+        provenance: skeleton.provenance ?? {}
+      }
+      return fallback
+    }
+
+    try {
+      const normalized = JSON.parse(jsonMatch[0]) as HarnessModel
+      return normalized
+    } catch (err) {
+      // 파싱 예외 — 축소 모델 반환
+      const fallback: HarnessModel = {
+        schemaVersion: 1,
+        meta: (skeleton.meta as HarnessModel['meta']) ?? {
+          name: 'unknown', source: '', bundleHash: '', kind: 'bundle'
+        },
+        agents: skeleton.agents ?? [],
+        levels: skeleton.levels ?? [],
+        triage: skeleton.triage ?? { questions: [], rules: [] },
+        artifacts: skeleton.artifacts ?? [],
+        controlFlow: skeleton.controlFlow ?? { gates: [], hooks: [], parallelGroups: [], loops: [] },
+        warnings: [
+          ...(skeleton.warnings ?? []),
+          `AI 정규화 JSON 파싱 예외: ${err instanceof Error ? err.message : String(err)}`
+        ],
+        provenance: skeleton.provenance ?? {}
+      }
+      return fallback
+    }
+  }
+
+  /**
+   * 태스크 설명 텍스트로 번들의 레벨(L0~L3)을 추정한다 (Dry-run).
+   *
+   * AI(Haiku) 가 triage 구조(질문/규칙)를 보고 레벨을 추정하며,
+   * Q 코드를 직접 노출하지 않고 자연어 answers 를 반환한다.
+   *
+   * levelPath 같은 결정론적 계산은 이 메서드 이후 호출자(DryRunEstimator)가 담당한다.
+   * 이 메서드는 { level, answers, rationale } 만 반환한다.
+   *
+   * @param taskText - 태스크 평문 또는 두레이 URL/설명
+   * @param triage - 번들의 HarnessTriage 구조
+   * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @returns { level, answers, rationale }
+   */
+  async estimateLevel(
+    taskText: string,
+    triage: HarnessTriage,
+    requestId?: string
+  ): Promise<Pick<DryRunResult, 'level' | 'answers' | 'rationale'>> {
+    const model = this.pickModel('harnessEstimate', 'haiku')
+    const systemPrompt = buildEstimateSystemPrompt()
+    const userPrompt = buildEstimateUserPrompt(taskText, triage)
+
+    const args = buildArgs(userPrompt, {
+      model,
+      systemPrompt,
+      maxBudget: '0.1',
+      effort: 'low',
+      noTools: true  // 레벨 추정은 텍스트 추론 — 도구 불필요
+    })
+
+    const result = await this.runWithProgress(
+      requestId,
+      '레벨 추정 중...',
+      args,
+      { feature: 'harnessEstimate' }
+    )
+
+    const raw = (result.result || '').trim()
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+
+    if (!jsonMatch) {
+      // 파싱 실패 시 기본값 반환 (throw 금지 — degradation)
+      return {
+        level: 'L1',
+        answers: ['레벨 추정 응답 파싱 실패 — 기본 L1 반환'],
+        rationale: `AI 응답에서 JSON 을 찾지 못했습니다. 원본: ${raw.substring(0, 200)}`
+      }
+    }
+
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        level?: string
+        answers?: unknown
+        rationale?: string
+      }
+      const level = (['L0', 'L1', 'L2', 'L3'] as const).find((l) => l === parsed.level) ?? 'L1'
+      const answers = Array.isArray(parsed.answers)
+        ? (parsed.answers as unknown[]).map((a) => String(a))
+        : []
+      const rationale = typeof parsed.rationale === 'string' ? parsed.rationale : ''
+      return { level, answers, rationale }
+    } catch (err) {
+      return {
+        level: 'L1',
+        answers: ['레벨 추정 JSON 파싱 예외 — 기본 L1 반환'],
+        rationale: `파싱 예외: ${err instanceof Error ? err.message : String(err)}`
+      }
     }
   }
 
