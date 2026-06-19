@@ -265,7 +265,23 @@ export const IPC_CHANNELS = {
   FEEDBACK_SUBMIT: 'feedback:submit',
 
   // Config
-  CONFIG_CHANGED: 'config:changed'
+  CONFIG_CHANGED: 'config:changed',
+
+  // Harness Studio (v1.7)
+  /** 경로(또는 폴더 선택 다이얼로그)를 받아 정적 스캔 결과 RawBundleSummary 반환 — AI 없음, 즉시 */
+  HARNESS_SCAN: 'harness:scan',
+  /** ~/.claude/skills/* 를 정적으로 스캔해 발견된 번들 목록 반환 */
+  HARNESS_DISCOVER: 'harness:discover',
+  /** 번들 경로를 AI(Sonnet)로 정규화해 HarnessModel 반환 — 캐시 hit 시 즉시, force=true 면 재정규화 */
+  HARNESS_NORMALIZE: 'harness:normalize',
+  /** 태스크 평문을 받아 레벨 추정 + 경로 계산 DryRunResult 반환 — taskHash 캐시 */
+  HARNESS_DRYRUN: 'harness:dryrun',
+  /** 번들 경로 + 토픽을 받아 온디맨드 설명/용어번역 마크다운 반환 (P3, Sonnet) */
+  HARNESS_EXPLAIN: 'harness:explain',
+  /** 캐시 삭제 — path 지정 시 해당 번들만, 생략 시 전체. 삭제된 항목 수 반환 */
+  HARNESS_CACHE_CLEAR: 'harness:cache:clear',
+  /** 캐시된 번들 목록 반환 — 최근 정규화한 하니스 빠른 재오픈용 */
+  HARNESS_LIST_CACHED: 'harness:list-cached'
 } as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS]

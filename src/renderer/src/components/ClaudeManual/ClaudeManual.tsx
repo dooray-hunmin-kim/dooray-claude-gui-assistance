@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Book, Terminal, Zap, Settings, MessageSquare, GitBranch, Shield, Cpu, Search, DollarSign, Wrench, Bot, FileCode, Clover } from 'lucide-react'
+import { Book, Terminal, Zap, Settings, MessageSquare, GitBranch, Shield, Cpu, Search, DollarSign, Wrench, Bot, FileCode, Clover, Workflow } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
@@ -48,6 +48,42 @@ AI 호출(브리핑·AI 채우기·요약·보고서 등)이 실패하면 **🐞
 
 ## 클립보드 복사
 전송 실패 시 (Hook URL 미설정 등) 자동으로 클립보드에 복사됩니다. 두레이 메신저에 붙여넣어 공유하세요.`
+  },
+  {
+    id: 'harness-studio', icon: Workflow, title: 'Harness Studio',
+    content: `# Harness Studio
+
+bmad 번들(reined-bmad, neon-bmad 등)을 가져와 에이전트 구조, 레벨 체인, 게이트, 산출물을 시각화하는 분석 도구.
+
+## 사이드바에서 열기
+
+사이드바의 **Harness Studio** 항목(Workflow 아이콘)을 클릭합니다.
+
+## 주요 기능 (출시 예정)
+
+| 뷰 | 설명 |
+|-----|------|
+| **Flow Canvas** | 에이전트 체인을 그래프로 시각화. L0~L3 레벨 토글로 활성 경로 표시 |
+| **Dry-run** | 태스크 설명을 입력하면 예상 레벨·에이전트 경로·소요 단계를 추정 |
+| **Skills/Blocks** | 에이전트별 역할 카드·도구 목록·합리화 방어 테이블 |
+| **Gates** | 게이트 규칙 코드(R5xx / NEON-Gxx)·훅 종류·상태기계 전이 |
+| **Artifacts** | 산출물 트리·persist 구분(git/ignore/dooray)·템플릿 스켈레톤 |
+| **Score** | 6축 레이더 차트(강제력·제어흐름·상태·차단게이트·피드백루프·관측가능성) |
+
+## Import 방법 (M4 이후)
+
+1. Harness Studio 탭을 열고 **하니스 import** 버튼 클릭
+2. bmad 번들 폴더를 드래그하거나 폴더 선택 다이얼로그로 지정
+3. 자동 발견: \`~/.claude/skills\` 하위 번들을 자동 탐지
+
+## 정적 스캔 vs AI 정규화
+
+- **정적 스캔** (즉시): 파일 트리·frontmatter·게이트 규칙 코드 추출
+- **AI 정규화** (Sonnet): 레벨 체인·역할·산출물 관계·점수 등 산문/스크립트에서 구조화
+- 결과는 번들 해시 기반으로 캐시됨 → 재오픈 시 즉시 표시
+
+> 현재 M0 스캐폴드 단계입니다. Import 위저드와 6뷰는 후속 업데이트에서 순차 제공됩니다.
+`
   },
   {
     id: 'whats-new-v15', icon: Zap, title: 'v1.5 변경사항',
@@ -105,6 +141,7 @@ AI 설정(스킬 + MCP)을 기능별로 독립 관리하고, 필요하면 AI가 
 | 📡 | **모니터링** | Grafana/Kafka/Server 상태 관측 |
 | >_ | **터미널** | 내장 터미널 (Claude Code 실행) |
 | 🌿 | **브랜치 작업** | Git worktree/브랜치 관리 |
+| ↗ | **Harness Studio** | bmad 번들 시각화 — 에이전트 구조·레벨 체인·게이트·산출물 분석 |
 | 👥 | **커뮤니티** | 팀 공유 공간 |
 
 ### 도구
