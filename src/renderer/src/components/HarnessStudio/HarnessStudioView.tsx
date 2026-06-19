@@ -8,6 +8,11 @@ import type { SegTabItem } from '@/components/common/ds/SegTabs'
 import { EmptyView, LoadingView, ErrorView } from '@/components/common/ds/StateViews'
 import { ImportWizard } from './import/ImportWizard'
 import type { ConfirmStepPersonalization } from './import/ConfirmStep'
+import { FlowCanvas } from './flow/FlowCanvas'
+import { SkillsBlocksPanel } from './views/SkillsBlocksPanel'
+import { GatesPanel } from './views/GatesPanel'
+import { ArtifactsPanel } from './views/ArtifactsPanel'
+import { ScorePanel } from './views/ScorePanel'
 
 interface HarnessStudioViewProps {
   active?: boolean
@@ -28,7 +33,7 @@ const STUDIO_TABS: SegTabItem<StudioTab>[] = [
 /** M5/M6 에서 각 탭 컴포넌트가 채울 곳 */
 const TAB_PLACEHOLDER_LABELS: Record<StudioTab, string> = {
   flow:      'Flow Canvas (M5 — @xyflow/react 그래프)',
-  dryrun:    'Dry-run 미리보기 (M5)',
+  dryrun:    'Dry-run 미리보기 (후속)',
   skills:    'Skills & Blocks 해부 (M6)',
   gates:     'Gates & 강제 (M6)',
   artifacts: '산출물 트리 (M6)',
@@ -233,12 +238,45 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
         />
       </div>
 
-      {/* 탭 본체 — M5/M6 에서 채운다 */}
-      <div className="flex-1 overflow-y-auto flex items-center justify-center">
-        <TabPlaceholder tab={activeTab} model={model} />
+      {/* 탭 본체 */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <TabContent tab={activeTab} model={model} />
       </div>
     </div>
   )
+}
+
+/**
+ * 활성 탭에 해당하는 뷰 본체를 렌더한다.
+ *
+ * - flow: @xyflow/react 그래프(자체 높이 채움) — 스크롤 컨테이너로 감싸지 않는다.
+ * - skills/gates/artifacts/score: 정적 패널(자체 스크롤).
+ * - dryrun: M7 미구현 — placeholder.
+ */
+function TabContent({ tab, model }: { tab: StudioTab; model: HarnessModel }): JSX.Element {
+  switch (tab) {
+    case 'flow':
+      return (
+        <div className="w-full h-full">
+          <FlowCanvas model={model} />
+        </div>
+      )
+    case 'skills':
+      return <div className="w-full h-full overflow-y-auto"><SkillsBlocksPanel model={model} /></div>
+    case 'gates':
+      return <div className="w-full h-full overflow-y-auto"><GatesPanel model={model} /></div>
+    case 'artifacts':
+      return <div className="w-full h-full overflow-y-auto"><ArtifactsPanel model={model} /></div>
+    case 'score':
+      return <div className="w-full h-full overflow-y-auto"><ScorePanel model={model} /></div>
+    case 'dryrun':
+    default:
+      return (
+        <div className="w-full h-full flex items-center justify-center">
+          <TabPlaceholder tab={tab} model={model} />
+        </div>
+      )
+  }
 }
 
 /** 캐시된 하니스 항목 카드 */
