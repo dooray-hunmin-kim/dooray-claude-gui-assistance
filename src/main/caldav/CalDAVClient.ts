@@ -1,7 +1,7 @@
 import { createDAVClient } from 'tsdav'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
-import { parseICal, buildICal, patchDateTimeInIcs } from './ical'
+import { parseICal, buildICal, patchDateTimeInIcs, patchEventFields } from './ical'
 
 export interface SyncProgress {
   calendarUrl: string
@@ -466,24 +466,17 @@ export class CalDAVClient {
     end: string
     allDay: boolean
   }): Promise<{ etag?: string }> {
-    const parsed = parseICal(input.existingIcs)
-    if (!parsed) throw new Error('기존 ICS 파싱 실패')
-    
-    const newIcs = buildICal({
-      uid: parsed.uid,
+    if (!parseICal(input.existingIcs)) throw new Error('기존 ICS 파싱 실패')
+
+    // buildICal 재구성은 두레이 고유 속성(X-*, VTIMEZONE 등)을 잃어 서버가 변경을 무시함 →
+    // 원본 ICS 를 patch 해서 편집 필드만 교체 (막대 드래그가 동작하는 것과 동일한 보존 방식).
+    const newIcs = patchEventFields(input.existingIcs, {
       summary: input.summary,
       description: input.description,
       location: input.location,
       start: input.start,
       end: input.end,
-      allDay: input.allDay,
-      createdAt: parsed.createdAt, // CREATED 보존
-      rrule: parsed.rrule,
-      attendees: parsed.attendees,
-      organizer: parsed.organizer,
-      alarms: parsed.alarms,
-      status: parsed.status,
-      url: parsed.url
+      allDay: input.allDay
     })
     
     const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href

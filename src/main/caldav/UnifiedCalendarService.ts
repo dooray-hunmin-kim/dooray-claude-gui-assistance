@@ -11,7 +11,7 @@ import { CalDAVClient, type SyncProgress } from './CalDAVClient'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { LocalEventStore } from './LocalEventStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
-import { parseICal, patchDateTimeInIcs, buildICal } from './ical'
+import { parseICal, patchDateTimeInIcs, patchEventFields } from './ical'
 import { HolidayService, HOLIDAY_CALENDAR_ID, HOLIDAY_CALENDAR_NAME } from '../holiday/HolidayService'
 
 /**
@@ -508,23 +508,14 @@ export class UnifiedCalendarService {
       allDay: input.allDay
     })
     
-    // 로컬 ObjectsStore 의 ICS 도 즉시 갱신
-    const parsed = parseICal(existing.ics)
-    const newIcs = buildICal({
-      uid: parsed?.uid || input.id,
+    // 로컬 ObjectsStore 의 ICS 도 즉시 갱신 — 서버 PUT 과 동일한 patch 방식으로 원본 보존
+    const newIcs = patchEventFields(existing.ics, {
       summary: input.summary,
       description: input.description,
       location: input.location,
       start: input.start,
       end: input.end,
-      allDay: input.allDay,
-      createdAt: parsed?.createdAt,
-      rrule: parsed?.rrule,
-      attendees: parsed?.attendees,
-      organizer: parsed?.organizer,
-      alarms: parsed?.alarms,
-      status: parsed?.status,
-      url: parsed?.url
+      allDay: input.allDay
     })
     
     CalendarObjectsStore.upsertObject(input.calendarId, input.caldavUrl, {
