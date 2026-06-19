@@ -1,19 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, Save, Sparkles, Search, X, Download, Upload, User, Loader2, RefreshCw, Trash2, CheckSquare, AlertCircle } from 'lucide-react'
+import { Plus, Save, Sparkles, Search, X, Download, Upload, User, Loader2, RefreshCw, Trash2, CheckSquare } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import SkillCard from './SkillCard'
-import SharedSkillCard from './SharedSkillCard'
 import SkillEditor from './SkillEditor'
 import SkillCreateModal from './SkillCreateModal'
 import type { Skill } from '../../../../shared/types/skills'
-import type { SharedSkill } from '../../../../shared/types/shared-skills'
 import { Button, Modal, SegTabs, useToast } from '../common/ds'
 
 import { DEFAULT_WIKIS } from '../../../../shared/wiki-storage-defaults'
 import WikiStoragePicker from '../common/WikiStoragePicker'
 
-type FilterTab = 'mine' | 'wiki' | 'shared'
+type FilterTab = 'mine' | 'wiki'
 
 interface WikiStorageEntry { pageId: string; name: string; content: string; updatedAt: number }
 
@@ -36,7 +34,7 @@ function SkillsManager(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<FilterTab>('mine')
-  // 공유소 탭에서 "내 스킬 공유하기" → 로컬 스킬 picker 모달
+  // 공유 탭 — "내 스킬 공유하기" picker 모달 (로컬 스킬을 골라 위키에 업로드)
   const [sharePickerOpen, setSharePickerOpen] = useState(false)
 
   // 다중 선택 (내 스킬 탭 한정)
@@ -49,14 +47,14 @@ function SkillsManager(): JSX.Element {
   const [wikiItems, setWikiItems] = useState<WikiStorageEntry[]>([])
   const [wikiLoading, setWikiLoading] = useState(false)
 
-  // 공유소 상태
-  const [sharedSkills, setSharedSkills] = useState<SharedSkill[]>([])
-  const [sharedLoading, setSharedLoading] = useState(false)
-  const [sharedError, setSharedError] = useState<string | null>(null)
-  const [previewShared, setPreviewShared] = useState<SharedSkill | null>(null)
-  const [sharedBusy, setSharedBusy] = useState<string | null>(null)
-  const [uploadingSkill, setUploadingSkill] = useState<string | null>(null) // filename of uploading skill
-  const [previewLoading, setPreviewLoading] = useState(false)
+  // 위키 스킬 미리보기 모달
+  const [previewShared, setPreviewShared] = useState<{
+    postId: string; filename: string; name: string; content: string;
+    description?: string; authorName: string; createdAt: string; updatedAt: string; isMine: boolean
+  } | null>(null)
+
+  /** 업로드 진행 상태 — null 이면 idle, 객체면 진행 중 */
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; wikiName: string; currentName: string } | null>(null)
 
   const loadSkills = useCallback(async () => {
     try {
@@ -64,24 +62,6 @@ function SkillsManager(): JSX.Element {
       setSkills(list)
     } catch (err) {
       console.error('Failed to load skills:', err)
-    }
-  }, [])
-
-  const loadSharedSkills = useCallback(async () => {
-    setSharedLoading(true)
-    setSharedError(null)
-    try {
-      if (!window.api.sharedSkills) {
-        throw new Error('앱 업데이트 반영 필요 — 앱을 완전히 종료 후 다시 실행하세요')
-      }
-      const list = await window.api.sharedSkills.list()
-      setSharedSkills(list)
-    } catch (err) {
-      console.error('Failed to load shared skills:', err)
-      const msg = err instanceof Error ? err.message : '공유 스킬 로드 실패'
-      setSharedError(msg)
-    } finally {
-      setSharedLoading(false)
     }
   }, [])
 
@@ -144,10 +124,6 @@ function SkillsManager(): JSX.Element {
     if (tab === 'wiki' && activeWikiId) loadWikiItems()
   }, [tab, activeWikiId, loadWikiItems])
 
-  useEffect(() => {
-    if (tab === 'shared') loadSharedSkills()
-  }, [tab, loadSharedSkills])
-
   /** picker 가 호출하는 통합 변경 핸들러 — 추가/제거 모두 처리. */
   const handleWikiListChange = async (next: Array<{ wikiId: string; wikiName: string }>): Promise<void> => {
     setRegisteredWikis(next)
@@ -175,9 +151,6 @@ function SkillsManager(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [shareTargetPicker])
-
-  /** 업로드 진행 상태 — null 이면 idle, 객체면 진행 중 */
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number; wikiName: string; currentName: string } | null>(null)
 
   const uploadSkillsToWiki = async (skillsToUpload: Skill[], wikiId: string): Promise<void> => {
     const target = registeredWikis.find((w) => w.wikiId === wikiId)
@@ -305,97 +278,6 @@ function SkillsManager(): JSX.Element {
     }
   }
 
-  const handleShareUpload = async (skill: Skill): Promise<void> => {
-    if (uploadingSkill) return // 중복 업로드 방지
-    if (!window.api.sharedSkills) {
-      toast.error('앱 업데이트 반영 필요 — 앱을 완전히 종료 후 다시 실행하세요')
-      return
-    }
-    // 이미 내가 공유한 스킬인지 확인 — 내 공유 목록에 같은 filename이 있으면 경고
-    const alreadyShared = sharedSkills.find((s) => s.isMine && s.filename === skill.filename)
-    if (alreadyShared) {
-      const ok = window.confirm(
-        `"${skill.name}" 스킬은 이미 공유되어 있습니다.\n\n` +
-        `내용을 최신으로 업데이트할까요? (기존 공유 항목은 새 게시물로 교체됩니다)\n` +
-        `본문에 민감한 정보(토큰/API 키 등)가 포함돼 있지 않은지 먼저 확인해주세요.`
-      )
-      if (!ok) return
-    } else {
-      const ok = window.confirm(
-        `"${skill.name}" 스킬을 공유소에 업로드할까요?\n\n` +
-        `업로드된 스킬은 모든 동료가 다운로드할 수 있습니다.\n` +
-        `본문에 민감한 정보(토큰/API 키 등)가 포함돼 있지 않은지 먼저 확인해주세요.`
-      )
-      if (!ok) return
-    }
-    setUploadingSkill(skill.filename)
-    toast.info(`"${skill.name}" 업로드 중...`)
-    try {
-      await window.api.sharedSkills.upload({
-        filename: skill.filename,
-        name: skill.name,
-        content: skill.content
-      })
-      toast.success(`"${skill.name}" 공유소에 업로드 완료`)
-      // 공유소 목록 갱신 — 공유 탭이 열려있거나 sharedSkills가 로드된 경우
-      if (tab === 'shared' || sharedSkills.length > 0) loadSharedSkills()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '업로드 실패 — 두레이 로그인 상태를 확인하세요')
-    } finally {
-      setUploadingSkill(null)
-    }
-  }
-
-  const handleSharedDownload = async (shared: SharedSkill): Promise<void> => {
-    setSharedBusy(shared.postId)
-    try {
-      const { filename } = await window.api.sharedSkills.download(shared.postId)
-      toast.success(`"${filename}" 내 스킬에 추가됨`)
-      await loadSkills()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '다운로드 실패')
-    } finally {
-      setSharedBusy(null)
-    }
-  }
-
-  const handleSharedDelete = async (shared: SharedSkill): Promise<void> => {
-    // 공유 해제 전 명시적 확인 — 다른 사용자가 다운로드할 수 없게 됨을 안내
-    const ok = window.confirm(
-      `"${shared.name}"의 공유를 해제할까요?\n\n` +
-      `공유소(두레이 위키)에서 제거됩니다. 이미 다운로드한 동료의 로컬 스킬에는 영향이 없습니다.`
-    )
-    if (!ok) return
-    setSharedBusy(shared.postId)
-    try {
-      await window.api.sharedSkills.delete(shared.postId)
-      toast.success(`"${shared.name}" 공유 해제 완료`)
-      await loadSharedSkills()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '공유 해제 실패')
-    } finally {
-      setSharedBusy(null)
-    }
-  }
-
-  const handleOpenSharedPreview = async (shared: SharedSkill): Promise<void> => {
-    // 본문이 비어있으면 상세 조회 — 먼저 모달 열고 로딩 상태 표시.
-    // fetch 실패해도 모달은 닫지 말고 "본문 없음" 으로 두기 — 예전엔 즉시 닫혀서 사용자가 "클릭이 안 됨" 으로 체감.
-    setPreviewShared(shared)
-    if (!shared.content) {
-      setPreviewLoading(true)
-      try {
-        const full = await window.api.sharedSkills.get(shared.postId)
-        setPreviewShared(full)
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : '상세 조회 실패')
-        // 모달은 유지 — content 비어있더라도 frontmatter description / 메타라도 보이도록.
-      } finally {
-        setPreviewLoading(false)
-      }
-    }
-  }
-
   const filteredSkills = useMemo(() => {
     const q = search.trim().toLowerCase()
     let list = skills
@@ -408,16 +290,6 @@ function SkillsManager(): JSX.Element {
     }
     return list
   }, [skills, search])
-
-  const filteredShared = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return sharedSkills
-    return sharedSkills.filter((s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.authorName.toLowerCase().includes(q) ||
-      (s.description ?? '').toLowerCase().includes(q)
-    )
-  }, [sharedSkills, search])
 
   const handleEditorChange = (value: string): void => {
     setEditorContent(value)
@@ -552,15 +424,14 @@ function SkillsManager(): JSX.Element {
           <Sparkles size={18} className="text-clauday-blue" />
           <h2 className="text-[14px] font-semibold text-text-primary">Claude 스킬</h2>
           <span className="ds-chip neutral">
-            {tab === 'mine' ? `${skills.length}개` : tab === 'wiki' ? `${wikiItems.length}개 공유됨` : `${sharedSkills.length}개`}
+            {tab === 'mine' ? `${skills.length}개` : `${wikiItems.length}개 공유됨`}
           </span>
           <SegTabs<FilterTab>
             value={tab}
             onChange={(t) => { setTab(t); exitSelectMode() }}
             items={[
               { key: 'mine', label: '내 스킬' },
-              { key: 'wiki', label: '위키 공유' },
-              { key: 'shared', label: '공유소' }
+              { key: 'wiki', label: '공유' }
             ]}
           />
           {tab === 'wiki' && (
@@ -571,17 +442,6 @@ function SkillsManager(): JSX.Element {
               onChange={handleWikiListChange}
               onActiveChange={switchActiveWiki}
             />
-          )}
-          {tab === 'shared' && (
-            <>
-              <Button variant="secondary" onClick={() => loadSharedSkills()} disabled={sharedLoading}
-                leftIcon={<RefreshCw size={12} className={sharedLoading ? 'animate-spin' : ''} />}>
-                새로고침
-              </Button>
-              <Button variant="primary" onClick={() => setSharePickerOpen(true)} leftIcon={<Upload size={13} />}>
-                내 스킬 공유하기
-              </Button>
-            </>
           )}
           <div className="flex-1" />
           {tab === 'mine' && (
@@ -616,6 +476,9 @@ function SkillsManager(): JSX.Element {
                 leftIcon={selectMode ? <X size={13} /> : <CheckSquare size={13} />}
               >
                 {selectMode ? '선택 종료' : '선택'}
+              </Button>
+              <Button variant="primary" onClick={() => setSharePickerOpen(true)} leftIcon={<Upload size={13} />}>
+                내 스킬 공유하기
               </Button>
             </>
           )}
@@ -669,14 +532,14 @@ function SkillsManager(): JSX.Element {
         )}
 
         {/* Search */}
-        {(tab === 'mine' ? skills.length > 0 : tab === 'wiki' ? wikiItems.length > 0 : sharedSkills.length > 0) && (
+        {(tab === 'mine' ? skills.length > 0 : wikiItems.length > 0) && (
           <div className="relative max-w-md">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={tab === 'mine' ? '이름·내용 검색...' : tab === 'shared' ? '이름·설명·작성자 검색...' : '이름 검색...'}
+              placeholder={tab === 'mine' ? '이름·내용 검색...' : '이름 검색...'}
               className="ds-input sm"
               style={{ paddingLeft: 28, paddingRight: 28 }}
             />
@@ -710,7 +573,6 @@ function SkillsManager(): JSX.Element {
                 <SkillCard
                   key={skill.filename}
                   skill={skill}
-                  uploading={uploadingSkill === skill.filename}
                   onOpen={() => handleOpen(skill)}
                   onDelete={() => handleDelete(skill)}
                   onUploadToWiki={registeredWikis.length > 0 ? () => handleUploadToWiki(skill) : undefined}
@@ -721,8 +583,8 @@ function SkillsManager(): JSX.Element {
               ))}
             </div>
           )
-        ) : tab === 'wiki' ? (
-          // 위키 공유 탭
+        ) : (
+          // 공유 탭 (위키 저장소 기반)
           !activeWikiId ? (
             <div className="py-16 text-center">
               <Sparkles size={32} className="mx-auto text-text-tertiary mb-3" />
@@ -735,7 +597,7 @@ function SkillsManager(): JSX.Element {
             <div className="py-16 text-center">
               <Upload size={32} className="mx-auto text-text-tertiary mb-3" />
               <p className="text-sm font-medium text-text-primary mb-1">아직 공유된 스킬이 없습니다</p>
-              <p className="text-[11px] text-text-tertiary">'내 스킬' 탭에서 카드 메뉴 → '공유에 올리기'로 시작하세요</p>
+              <p className="text-[11px] text-text-tertiary">'내 스킬 공유하기' 버튼으로 위키에 스킬을 업로드해보세요</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -801,46 +663,6 @@ function SkillsManager(): JSX.Element {
               })}
             </div>
           )
-        ) : (
-          // 공유소 탭 (두레이 커뮤니티 기반)
-          sharedLoading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-[12px] text-text-tertiary">
-              <Loader2 size={14} className="animate-spin text-clauday-blue" />
-              공유소 불러오는 중...
-            </div>
-          ) : sharedError ? (
-            <div className="py-16 text-center">
-              <AlertCircle size={32} className="mx-auto text-red-400 mb-3" />
-              <p className="text-sm font-medium text-text-primary mb-1">공유소 로드 실패</p>
-              <p className="text-[11px] text-text-tertiary mb-4">{sharedError}</p>
-              <Button variant="secondary" onClick={loadSharedSkills} leftIcon={<RefreshCw size={12} />}>
-                다시 시도
-              </Button>
-            </div>
-          ) : sharedSkills.length === 0 ? (
-            <div className="py-16 text-center">
-              <Upload size={32} className="mx-auto text-text-tertiary mb-3" />
-              <p className="text-sm font-medium text-text-primary mb-1">아직 공유된 스킬이 없습니다</p>
-              <p className="text-[11px] text-text-tertiary">'내 스킬' 탭에서 카드 메뉴 → '공유소에 업로드'로 시작하세요</p>
-            </div>
-          ) : filteredShared.length === 0 ? (
-            <div className="py-12 text-center text-[12px] text-text-tertiary">
-              "{search}"에 일치하는 스킬이 없습니다
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {filteredShared.map((shared) => (
-                <SharedSkillCard
-                  key={shared.postId}
-                  skill={shared}
-                  busy={sharedBusy === shared.postId}
-                  onOpen={() => handleOpenSharedPreview(shared)}
-                  onDownload={() => handleSharedDownload(shared)}
-                  onDelete={shared.isMine ? () => handleSharedDelete(shared) : undefined}
-                />
-              ))}
-            </div>
-          )
         )}
       </div>
 
@@ -848,7 +670,7 @@ function SkillsManager(): JSX.Element {
         <SkillCreateModal onClose={() => setCreating(false)} onCreated={handleCreated} />
       )}
 
-      {/* 공유소 탭 — "내 스킬 공유하기" picker. 탭 이동 없이 로컬 스킬을 골라 바로 업로드. */}
+      {/* 공유 탭 — "내 스킬 공유하기" picker. 로컬 스킬을 골라 위키에 직접 업로드. */}
       <Modal
         open={sharePickerOpen}
         onClose={() => setSharePickerOpen(false)}
@@ -858,28 +680,29 @@ function SkillsManager(): JSX.Element {
       >
         <div className="p-4">
           <p className="text-[11px] text-text-tertiary mb-3">
-            공유소에 올릴 내 스킬을 선택하세요. 업로드된 스킬은 동료가 다운로드할 수 있습니다.
+            위키에 공유할 내 스킬을 선택하세요. 업로드된 스킬은 동료가 다운로드할 수 있습니다.
           </p>
           {skills.length === 0 ? (
             <div className="py-8 text-center text-xs text-text-secondary">공유할 내 스킬이 없습니다.</div>
           ) : (
             <div className="flex flex-col gap-1.5 max-h-[50vh] overflow-y-auto">
               {skills.map((skill) => {
-                const mine = sharedSkills.find((s) => s.isMine && s.filename === skill.filename)
-                const busy = uploadingSkill === skill.filename
+                // 활성 위키에 이미 공유된 스킬인지 확인
+                const alreadyShared = wikiItems.some((i) => i.name === skill.name)
+                const uploading = uploadProgress !== null && uploadProgress.currentName === skill.name
                 return (
                   <div key={skill.filename}
                     className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-surface border border-bg-border">
                     <Sparkles size={13} className="text-clauday-blue flex-shrink-0" />
                     <span className="text-sm text-text-primary truncate flex-1" title={skill.name}>{skill.name}</span>
-                    {mine && <span className="ds-chip neutral flex-shrink-0">공유됨</span>}
+                    {alreadyShared && <span className="ds-chip neutral flex-shrink-0">공유됨</span>}
                     <Button
-                      variant={mine ? 'secondary' : 'primary'}
-                      onClick={() => handleShareUpload(skill)}
-                      disabled={!!uploadingSkill}
-                      leftIcon={busy ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                      variant={alreadyShared ? 'secondary' : 'primary'}
+                      onClick={() => handleShareToWiki([skill])}
+                      disabled={uploadProgress !== null}
+                      leftIcon={uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
                     >
-                      {mine ? '업데이트' : '공유'}
+                      {alreadyShared ? '업데이트' : '공유'}
                     </Button>
                   </div>
                 )
@@ -922,7 +745,7 @@ function SkillsManager(): JSX.Element {
         )}
       </Modal>
 
-      {/* 공유 스킬 미리보기 */}
+      {/* 위키 공유 스킬 미리보기 */}
       <Modal
         open={!!previewShared}
         onClose={() => setPreviewShared(null)}
@@ -931,10 +754,10 @@ function SkillsManager(): JSX.Element {
         title={previewShared?.name}
         footer={
           <>
-            {previewShared && (
+            {previewShared && previewShared.authorName && (
               <span className="text-[11px] text-text-tertiary flex items-center gap-1">
                 <User size={11} />
-                {previewShared.authorName}{previewShared.isMine && ' · 나'}
+                {previewShared.authorName}
               </span>
             )}
             <div style={{ flex: 1 }} />
@@ -943,10 +766,16 @@ function SkillsManager(): JSX.Element {
               <Button
                 variant="primary"
                 onClick={async () => {
-                  await handleSharedDownload(previewShared)
-                  setPreviewShared(null)
+                  if (previewShared) {
+                    await handleDownloadFromWiki({
+                      pageId: previewShared.postId,
+                      name: previewShared.name,
+                      content: previewShared.content,
+                      updatedAt: previewShared.updatedAt ? new Date(previewShared.updatedAt).getTime() : 0
+                    })
+                    setPreviewShared(null)
+                  }
                 }}
-                disabled={sharedBusy === previewShared.postId}
                 leftIcon={<Download size={12} />}
               >
                 다운로드
@@ -956,16 +785,10 @@ function SkillsManager(): JSX.Element {
         }
       >
         {previewShared && (
-          previewLoading ? (
-            <div className="flex items-center justify-center gap-2 py-16 text-[12px] text-text-tertiary">
-              <Loader2 size={14} className="animate-spin text-clauday-blue" />
-              스킬 내용 불러오는 중...
-            </div>
-          ) : !previewShared.content ? (
+          !previewShared.content ? (
             <div className="text-[12px] text-text-tertiary py-8 text-center">(본문 없음)</div>
           ) : (
-            // #1 마크다운으로 렌더 — 기존 <pre> raw 보다 가독성 ↑
-            // 스킬은 frontmatter(---) + 마크다운 본문 형식이라 GFM 가 자연스럽게 처리
+            // 스킬은 frontmatter(---) + 마크다운 본문 형식 — GFM 으로 렌더
             <div className="markdown-body text-[12px] leading-relaxed text-text-primary"
               style={{ maxHeight: '60vh', overflow: 'auto' }}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
