@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react'
+import { useState, useEffect, useCallback, useMemo, memo, useRef } from 'react'
 import { RefreshCw, Clock, MapPin, AlertCircle, CalendarDays, Loader2, Settings, Check, Plus, ListTodo } from 'lucide-react'
 import type { DoorayCalendarEvent } from '../../../../shared/types/dooray'
 import { LoadingView, ErrorView, EmptyView } from '../common/StateViews'
@@ -298,6 +298,8 @@ function CalendarAssistant(): JSX.Element {
   const [viewMode, setViewMode] = useState<CalendarViewMode>('list')
   const [viewModeLoaded, setViewModeLoaded] = useState(false)
   const [caldavStatus, setCaldavStatus] = useState<{ connected: boolean; username: string | null } | null>(null)
+  // focus 시 서버 동기화 throttle (30초) — 마지막 focus-sync 시각
+  const lastFocusSyncRef = useRef(0)
 
   // 뷰 모드 로드
   useEffect(() => {
@@ -317,13 +319,23 @@ function CalendarAssistant(): JSX.Element {
       loadStatus()
       loadEvents()
     }
+    // 창에 다시 들어올 때(focus) 서버 변경분을 가볍게 당겨온다 — poller 3분 주기를 기다리지 않도록.
+    // 잦은 alt-tab 으로 두레이 quota 를 압박하지 않게 30초 throttle. incrementalSync 가 변경을
+    // 감지하면 main 이 caldav-updated 를 쏘므로 onUpdated → loadEvents 로 자동 반영된다.
+    const onFocus = (): void => {
+      loadStatus()
+      const now = Date.now()
+      if (now - lastFocusSyncRef.current < 30_000) { loadEvents(); return }
+      lastFocusSyncRef.current = now
+      window.api.caldav.incrementalSync().catch(() => { /* 백그라운드 */ }).finally(() => loadEvents())
+    }
     const offUpdated = window.api.caldav.onUpdated(() => { loadEvents() })
     window.addEventListener('caldav-status-changed', onChange)
-    window.addEventListener('focus', onChange)
+    window.addEventListener('focus', onFocus)
     return () => {
       offUpdated()
       window.removeEventListener('caldav-status-changed', onChange)
-      window.removeEventListener('focus', onChange)
+      window.removeEventListener('focus', onFocus)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
