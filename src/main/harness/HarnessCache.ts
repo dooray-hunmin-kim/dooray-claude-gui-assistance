@@ -19,7 +19,7 @@ import { join } from 'path'
 import type { HarnessModel, DryRunResult, CachedHarnessEntry } from '../../shared/types/harness'
 
 /** HarnessModel 의 현재 스키마 버전 — 스키마 변경 시 올린다 */
-export const CURRENT_SCHEMA_VERSION = 2
+export const CURRENT_SCHEMA_VERSION = 3
 
 /** index.json 의 항목 타입 */
 interface IndexEntry {

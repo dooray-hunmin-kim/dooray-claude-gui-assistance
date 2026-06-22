@@ -140,9 +140,15 @@ export function extractRuleCodes(scriptText: string): string[] {
   // 복합 패턴 먼저, 단독 패턴 나중 (longest-match 원칙 유지)
   const pattern = /\b(R[0-9]{2,4}|[A-Z]{2,10}-[A-Z]{1,10}[0-9]{1,3}|[A-Z]{2,10}[0-9]{2,3})\b/g
   const codes = new Set<string>()
-  let match: RegExpExecArray | null
-  while ((match = pattern.exec(scriptText)) !== null) {
-    codes.add(match[1])
+  for (const line of scriptText.split('\n')) {
+    // 순수 주석 줄 제외 — 주석에 적힌 코드 범위(예: "# 출처: R500~R561")를
+    // 실제 강제 규칙으로 오인하지 않도록 한다(메시지 없는 유령 코드 방지).
+    if (/^\s*#/.test(line)) continue
+    let match: RegExpExecArray | null
+    pattern.lastIndex = 0
+    while ((match = pattern.exec(line)) !== null) {
+      codes.add(match[1])
+    }
   }
   return [...codes].sort()
 }
@@ -167,6 +173,8 @@ const RULE_CODE_RE = /\b(R[0-9]{2,4}|[A-Z]{2,10}-[A-Z]{1,10}[0-9]{1,3}|[A-Z]{2,1
 export function extractRuleDetails(scriptText: string): { code: string; message: string }[] {
   const map = new Map<string, string>()
   for (const line of scriptText.split('\n')) {
+    // 순수 주석 줄 제외 (주석 속 코드 범위 오인 방지)
+    if (/^\s*#/.test(line)) continue
     const m = RULE_CODE_RE.exec(line)
     if (!m) continue
     const code = m[1]
@@ -178,6 +186,9 @@ export function extractRuleDetails(scriptText: string): { code: string; message:
     const message = afterCode
       .slice(first + 1, last)
       .replace(/^["\s>&|]+/, '') // 따옴표/공백/리다이렉트 잔여 제거 (block "CODE" "msg" 형태)
+      // 셸 변수 prefix 정리 — "$(basename "$f"): ..." / "${f}: ..." → 본문만 (가독성)
+      .replace(/^\$\(basename[^)]*\)\s*:?\s*/, '')
+      .replace(/^\$\{?[a-zA-Z_][a-zA-Z0-9_]*\}?\s*:?\s*/, '')
       .replace(/["\s]+$/, '')
       .trim()
     if (message) map.set(code, message)
