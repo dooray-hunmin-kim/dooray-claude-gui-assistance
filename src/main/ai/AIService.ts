@@ -488,11 +488,20 @@ ${stdinPrompt ?? ''}`
 
       // 진단 로그 누적 — 호출 끝나면 userData/logs/claude-cli.log 에 한 줄 추가.
       // 사용자가 오류 제보할 때 같이 보낼 데이터.
+      //
+      // harness 계열 feature(harnessNormalize/harnessEstimate/harnessExplain) 는
+      // stdin 에 번들 원문/사용자 입력이 포함되므로 promptHead 평문 로깅 제거.
+      // platform/argv 진단은 유지 (CLAUDE.md 함정 #4).
+      const HARNESS_FEATURES = new Set(['harnessNormalize', 'harnessEstimate', 'harnessExplain'])
+      const isHarnessFeature = options.feature !== undefined && HARNESS_FEATURES.has(options.feature)
+      const diagPrompt = isHarnessFeature
+        ? `[redacted: ${options.feature} promptLength=${stdinPrompt?.length ?? 0}]`
+        : stdinPrompt
       const diag = startCliCall({
         feature: options.feature,
         bin: CLAUDE_CLI,
         argv: cleaned,
-        prompt: stdinPrompt
+        prompt: diagPrompt
       })
 
       // timeoutMs === null이면 타임아웃 없음(장시간 MCP 작업용). 미지정이면 120초.

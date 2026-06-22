@@ -537,7 +537,135 @@ describe('HarnessNormalizer', () => {
     })
   })
 
-  // ── 6. schemaVersion 항상 CURRENT ────────────────────────────────────────────
+  // ── 6. AI 출력 enum 검증 (P2-3) ──────────────────────────────────────────────
+
+  describe('AI 출력 enum 안전화', () => {
+    it('agents[].model 이 화이트리스트 밖이면 unknown 으로 대체되고 warnings 에 기록된다', async () => {
+      const raw = makeRawBundle()
+      const bundlePath = createTmpBundle('enum-model-bad')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      // AI 가 스켈레톤에 없던 새 에이전트를 추가 (화이트리스트 밖 model)
+      const aiResult = makeAIResult()
+      aiResult.agents.push({
+        id: 'new-ai-agent',
+        displayName: 'new-agent',
+        model: 'gpt-4' as never,  // 허용 안 되는 model 값
+        modelSource: 'ai',
+        tools: [],
+        role: '테스트',
+        reads: [],
+        writes: [],
+      })
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(aiResult)
+
+      const result = await normalizer.normalize(rawWithPath)
+
+      // 새 에이전트의 model 이 'unknown' 으로 대체됨
+      const newAgent = result.agents.find((a) => a.id === 'new-ai-agent')
+      expect(newAgent?.model).toBe('unknown')
+      // warnings 에 기록됨
+      expect(result.warnings.some((w) => w.includes('new-ai-agent') && w.includes('gpt-4'))).toBe(true)
+    })
+
+    it('artifacts[].persist 가 화이트리스트 밖이면 unknown 으로 대체되고 warnings 에 기록된다', async () => {
+      const raw = makeRawBundle()
+      const bundlePath = createTmpBundle('enum-persist-bad')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      const aiResult = makeAIResult()
+      // 기존 artifact 의 persist 를 잘못된 값으로 설정
+      aiResult.artifacts[0].persist = 'invalid-persist' as never
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(aiResult)
+
+      const result = await normalizer.normalize(rawWithPath)
+
+      expect(result.artifacts[0].persist).toBe('unknown')
+      expect(result.warnings.some((w) => w.includes('invalid-persist'))).toBe(true)
+    })
+
+    it('persist 가 허용된 값(git)이면 그대로 유지된다', async () => {
+      const raw = makeRawBundle()
+      const bundlePath = createTmpBundle('enum-persist-ok')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(makeAIResult())
+
+      const result = await normalizer.normalize(rawWithPath)
+
+      expect(result.artifacts[0].persist).toBe('git')
+    })
+
+    it('levels[].id 가 L0~L3 밖이면 드롭되고 warnings 에 기록된다', async () => {
+      const raw = makeRawBundle()
+      const bundlePath = createTmpBundle('enum-level-bad')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      const aiResult = makeAIResult()
+      // 유효한 L1 과 잘못된 L9 혼합
+      aiResult.levels = [
+        { id: 'L1', name: 'Standard', agentChain: [], requiredArtifacts: [] },
+        { id: 'L9' as never, name: 'Invalid', agentChain: [], requiredArtifacts: [] },
+      ]
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(aiResult)
+
+      const result = await normalizer.normalize(rawWithPath)
+
+      // L9 는 드롭되고 L1 만 남는다
+      expect(result.levels).toHaveLength(1)
+      expect(result.levels[0].id).toBe('L1')
+      expect(result.warnings.some((w) => w.includes('L9'))).toBe(true)
+    })
+
+    it('triage.rules[].then 이 L0~L3 밖이면 해당 rule 이 드롭된다', async () => {
+      const raw = makeRawBundle()
+      const bundlePath = createTmpBundle('enum-rule-then-bad')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      const aiResult = makeAIResult()
+      aiResult.triage.rules = [
+        { when: 'Q1=Yes', then: 'L2' },
+        { when: 'Q2=Yes', then: 'L99' as never },
+      ]
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(aiResult)
+
+      const result = await normalizer.normalize(rawWithPath)
+
+      // L99 rule 은 드롭
+      expect(result.triage.rules).toHaveLength(1)
+      expect(result.triage.rules[0].then).toBe('L2')
+      expect(result.warnings.some((w) => w.includes('L99'))).toBe(true)
+    })
+
+    it('배열이어야 할 agents 필드가 비배열이면 빈 배열로 안전화된다', async () => {
+      const raw = makeRawBundle({ agentStubs: [] })  // 스켈레톤도 비워서 AI 가 agents 를 추가하게 함
+      const bundlePath = createTmpBundle('enum-array-agents')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      const aiResult = makeAIResult()
+      // agents 를 비배열로 오염
+      ;(aiResult as unknown as Record<string, unknown>)['agents'] = 'not-an-array'
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(aiResult)
+
+      // 크래시 없이 동작해야 한다
+      await expect(normalizer.normalize(rawWithPath)).resolves.toBeDefined()
+    })
+
+    it('배열이어야 할 triage.rules 가 비배열이면 빈 배열로 안전화된다', async () => {
+      const raw = makeRawBundle()
+      const bundlePath = createTmpBundle('enum-array-rules')
+      const rawWithPath = { ...raw, bundlePath, fileTree: ['README.md'] }
+
+      const aiResult = makeAIResult()
+      ;(aiResult.triage as unknown as Record<string, unknown>)['rules'] = 'not-an-array'
+      vi.mocked(mockAI.normalizeHarness).mockResolvedValue(aiResult)
+
+      const result = await normalizer.normalize(rawWithPath)
+      expect(Array.isArray(result.triage.rules)).toBe(true)
+    })
+  })
+
+  // ── 7. schemaVersion 항상 CURRENT ────────────────────────────────────────────
 
   it('schemaVersion 은 항상 CURRENT_SCHEMA_VERSION 이다', async () => {
     const { CURRENT_SCHEMA_VERSION } = await import('./HarnessCache')

@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { HarnessService } from './HarnessService'
+import { HarnessService, HarnessInputTooLongError, MAX_TASK_TEXT_LENGTH, MAX_TOPIC_LENGTH } from './HarnessService'
 import type { IAIServiceForHarness } from './HarnessService'
 import { CURRENT_SCHEMA_VERSION } from './HarnessCache'
 import type { HarnessModel, DryRunResult } from '../../shared/types/harness'
@@ -248,6 +248,85 @@ describe('HarnessService', () => {
       // 기본 동작(빈 배열 또는 배열)만 확인한다.
       const result = await service.discover()
       expect(Array.isArray(result)).toBe(true)
+    })
+  })
+
+  // ── 입력 길이 검증 (P2-4) ────────────────────────────────────────────────
+
+  describe('입력 길이 검증', () => {
+    it('taskText 가 MAX_TASK_TEXT_LENGTH 이하이면 정상 처리된다', async () => {
+      const bundlePath = createMinimalBundle('input-len-ok')
+      service = new HarnessService(userDataPath, mockAI)
+      await service.scan(bundlePath)
+
+      vi.mocked(mockAI.normalizeHarness).mockImplementation(async (skeleton) =>
+        makeModel(bundlePath, skeleton.meta?.bundleHash || 'mock')
+      )
+      vi.mocked(mockAI.estimateLevel).mockResolvedValue(makeEstimate())
+
+      const okText = 'a'.repeat(MAX_TASK_TEXT_LENGTH)
+      // 경계값 — 던지지 않아야 한다
+      await expect(service.dryrun(bundlePath, okText)).resolves.toBeDefined()
+    })
+
+    it('taskText 가 MAX_TASK_TEXT_LENGTH 초과이면 HarnessInputTooLongError 를 throw 한다', async () => {
+      const bundlePath = createMinimalBundle('input-len-exceed')
+      service = new HarnessService(userDataPath, mockAI)
+      await service.scan(bundlePath)
+
+      vi.mocked(mockAI.normalizeHarness).mockImplementation(async (skeleton) =>
+        makeModel(bundlePath, skeleton.meta?.bundleHash || 'mock')
+      )
+      vi.mocked(mockAI.estimateLevel).mockResolvedValue(makeEstimate())
+
+      const tooLong = 'x'.repeat(MAX_TASK_TEXT_LENGTH + 1)
+      await expect(service.dryrun(bundlePath, tooLong)).rejects.toBeInstanceOf(HarnessInputTooLongError)
+    })
+
+    it('topic 이 MAX_TOPIC_LENGTH 이하이면 정상 처리된다', async () => {
+      const bundlePath = createMinimalBundle('topic-len-ok')
+      service = new HarnessService(userDataPath, mockAI)
+      await service.scan(bundlePath)
+
+      vi.mocked(mockAI.normalizeHarness).mockImplementation(async (skeleton) =>
+        makeModel(bundlePath, skeleton.meta?.bundleHash || 'mock')
+      )
+      vi.mocked(mockAI.explainHarness).mockResolvedValue('## 설명\n테스트')
+
+      const okTopic = 'b'.repeat(MAX_TOPIC_LENGTH)
+      await expect(service.explain(bundlePath, okTopic)).resolves.toBeDefined()
+    })
+
+    it('topic 이 MAX_TOPIC_LENGTH 초과이면 HarnessInputTooLongError 를 throw 한다', async () => {
+      const bundlePath = createMinimalBundle('topic-len-exceed')
+      service = new HarnessService(userDataPath, mockAI)
+      await service.scan(bundlePath)
+
+      const tooLongTopic = 't'.repeat(MAX_TOPIC_LENGTH + 1)
+      await expect(service.explain(bundlePath, tooLongTopic)).rejects.toBeInstanceOf(HarnessInputTooLongError)
+    })
+
+    it('HarnessInputTooLongError 는 field/maxLength/actualLength 를 담는다', async () => {
+      const bundlePath = createMinimalBundle('error-fields')
+      service = new HarnessService(userDataPath, mockAI)
+      await service.scan(bundlePath)
+
+      vi.mocked(mockAI.normalizeHarness).mockImplementation(async (skeleton) =>
+        makeModel(bundlePath, skeleton.meta?.bundleHash || 'mock')
+      )
+
+      const actual = MAX_TASK_TEXT_LENGTH + 100
+      const tooLong = 'y'.repeat(actual)
+      try {
+        await service.dryrun(bundlePath, tooLong)
+        expect.fail('에러가 throw 되어야 한다')
+      } catch (err) {
+        expect(err).toBeInstanceOf(HarnessInputTooLongError)
+        const e = err as HarnessInputTooLongError
+        expect(e.field).toBe('taskText')
+        expect(e.maxLength).toBe(MAX_TASK_TEXT_LENGTH)
+        expect(e.actualLength).toBe(actual)
+      }
     })
   })
 

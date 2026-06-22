@@ -26,6 +26,31 @@ import { detectBundleKind } from './bundleDetect'
 import { PathAllowlist, assertPathAllowed, getSkillsRoot, HarnessPathDeniedError } from './pathGate'
 
 // ─────────────────────────────────────────────
+// 입력 길이 상한 (LLM 비용/유출 확대 방지)
+// ─────────────────────────────────────────────
+
+/** taskText 최대 길이 — 8000자 초과 시 도메인 에러 */
+export const MAX_TASK_TEXT_LENGTH = 8000
+
+/** explain topic 최대 길이 — 500자 초과 시 도메인 에러 */
+export const MAX_TOPIC_LENGTH = 500
+
+/**
+ * dryrun taskText 입력이 너무 길 때 throw 되는 도메인 에러.
+ * LLM 에 과도한 입력이 전달되는 것을 막는다.
+ */
+export class HarnessInputTooLongError extends Error {
+  constructor(
+    public readonly field: 'taskText' | 'topic',
+    public readonly maxLength: number,
+    public readonly actualLength: number
+  ) {
+    super(`Harness 입력이 너무 깁니다. field=${field} max=${maxLength} actual=${actualLength}`)
+    this.name = 'HarnessInputTooLongError'
+  }
+}
+
+// ─────────────────────────────────────────────
 // AIService 인터페이스
 // ─────────────────────────────────────────────
 
@@ -201,6 +226,11 @@ export class HarnessService {
    * @returns DryRunResult
    */
   async dryrun(bundlePath: string, taskText: string, requestId?: string): Promise<DryRunResult> {
+    // 입력 길이 검증 — LLM 비용/유출 확대 방지
+    if (taskText.length > MAX_TASK_TEXT_LENGTH) {
+      throw new HarnessInputTooLongError('taskText', MAX_TASK_TEXT_LENGTH, taskText.length)
+    }
+
     const model = await this.normalize(bundlePath, false, requestId)
     return this.estimator.estimate(model, taskText, requestId)
   }
@@ -230,6 +260,11 @@ export class HarnessService {
     topic: string,
     requestId?: string
   ): Promise<{ markdown: string }> {
+    // 입력 길이 검증 — topic 이 지나치게 길면 LLM 비용 낭비·유출 위험
+    if (topic.length > MAX_TOPIC_LENGTH) {
+      throw new HarnessInputTooLongError('topic', MAX_TOPIC_LENGTH, topic.length)
+    }
+
     // 1. 번들 모델 획득 (캐시 우선, 없으면 정규화)
     const model = await this.normalize(bundlePath, false, requestId)
 
@@ -316,8 +351,19 @@ export class HarnessService {
       const bundlePath = path.join(skillsRoot, entry.name)
       try {
         // 파일 목록만 간단히 읽어 kind 판정 (전체 scan 은 비용이 크므로 최소화)
-        const subEntries = await fs.readdir(bundlePath, { encoding: 'utf-8' })
-        const filePaths = subEntries
+        // 1-depth 한계: fs.readdir 는 최상위 엔트리만 반환하므로
+        // _core/_agents/_templates 같은 신호 디렉터리가 비어있으면 detectBundleKind 가
+        // partial 로 오분류할 수 있다.
+        // 해결: 최상위 디렉터리 엔트리를 `dirName/_sentinel` 형태로 합성해 신호로 주입 —
+        // `^_core\/` 같은 패턴이 매칭되도록 1단계 더 확인한다.
+        const subEntries = await fs.readdir(bundlePath, { withFileTypes: true, encoding: 'utf-8' })
+        const filePaths: string[] = subEntries.map((e) => {
+          // 디렉터리 엔트리는 내부에 파일이 있다고 가정하는 sentinel 경로를 생성
+          if (e.isDirectory && e.isDirectory()) {
+            return `${e.name}/_sentinel`
+          }
+          return e.name
+        })
         const kind = detectBundleKind({ filePaths })
         results.push({
           path: bundlePath,

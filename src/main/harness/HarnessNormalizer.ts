@@ -26,7 +26,11 @@ import type {
   HarnessArtifact,
   HarnessControlFlow,
   Provenance,
-  FieldSource
+  FieldSource,
+  HarnessModelName,
+  HarnessLevelId,
+  TriageQuestion,
+  TriageRule
 } from '../../shared/types/harness'
 import type { RawBundle, RawGate, RawHook } from './BundleScanner'
 import { CURRENT_SCHEMA_VERSION } from './HarnessCache'
@@ -274,6 +278,62 @@ async function collectBundleText(
 }
 
 // ─────────────────────────────────────────────
+// AI 출력 enum 화이트리스트 검증
+// ─────────────────────────────────────────────
+
+/** agents[].model 허용 값 (HarnessModelName 과 동일) */
+const VALID_AGENT_MODELS: readonly HarnessModelName[] = ['haiku', 'sonnet', 'opus', 'unknown']
+
+/** artifacts[].persist 허용 값 (HarnessArtifact.persist 와 동일) */
+const VALID_PERSIST_VALUES: readonly HarnessArtifact['persist'][] = ['git', 'ignore', 'dooray', 'unknown']
+
+/** levels[].id / triage rule then 허용 값 (HarnessLevelId 와 동일) */
+const VALID_LEVEL_IDS: readonly HarnessLevelId[] = ['L0', 'L1', 'L2', 'L3']
+
+/**
+ * AI 가 반환한 agent model 값을 화이트리스트로 검증한다.
+ * 벗어나면 'unknown' 으로 안전화하고 warnings 에 기록한다.
+ */
+function sanitizeAgentModel(value: unknown, agentId: string, warnings: string[]): HarnessModelName {
+  if (VALID_AGENT_MODELS.includes(value as HarnessModelName)) {
+    return value as HarnessModelName
+  }
+  warnings.push(`AI 출력 검증: agents[id=${agentId}].model 값 "${String(value)}" 이 화이트리스트에 없어 'unknown' 으로 대체됨`)
+  return 'unknown'
+}
+
+/**
+ * AI 가 반환한 artifact persist 값을 화이트리스트로 검증한다.
+ * 벗어나면 'unknown' 으로 안전화하고 warnings 에 기록한다.
+ */
+function sanitizePersist(value: unknown, artifactId: string, warnings: string[]): HarnessArtifact['persist'] {
+  if (VALID_PERSIST_VALUES.includes(value as HarnessArtifact['persist'])) {
+    return value as HarnessArtifact['persist']
+  }
+  warnings.push(`AI 출력 검증: artifacts[id=${artifactId}].persist 값 "${String(value)}" 이 화이트리스트에 없어 'unknown' 으로 대체됨`)
+  return 'unknown'
+}
+
+/**
+ * AI 가 반환한 level id 를 화이트리스트로 검증한다.
+ * 벗어나면 null 반환 — 호출자가 드롭 처리한다.
+ */
+function validateLevelId(value: unknown): HarnessLevelId | null {
+  if (VALID_LEVEL_IDS.includes(value as HarnessLevelId)) {
+    return value as HarnessLevelId
+  }
+  return null
+}
+
+/**
+ * 배열이어야 할 필드가 비배열이면 빈 배열로 안전화한다.
+ * 호출부에서 타입을 명시적으로 지정해야 한다.
+ */
+function ensureArray<T>(value: T[] | undefined | null | unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : []
+}
+
+// ─────────────────────────────────────────────
 // AI 응답 머지 — [S] 필드 보호
 // ─────────────────────────────────────────────
 
@@ -295,6 +355,15 @@ function mergeWithStatic(
   baseProvenance: Provenance
 ): HarnessModel {
   const provenance: Provenance = { ...baseProvenance }
+  // AI 출력 검증 경고 누적 — 머지 완료 후 warnings 에 합산
+  const aiValidationWarnings: string[] = []
+
+  // 배열이어야 할 최상위 필드 안전화 — AI 가 잘못된 타입으로 채운 경우
+  const safeAIAgents = ensureArray<HarnessAgent>(aiResult.agents)
+  const safeAILevels = ensureArray<HarnessLevel>(aiResult.levels)
+  const safeAIArtifacts = ensureArray<HarnessArtifact>(aiResult.artifacts)
+  const safeAITriageQuestions = ensureArray<TriageQuestion>(aiResult.triage?.questions)
+  const safeAITriageRules = ensureArray<TriageRule>(aiResult.triage?.rules)
 
   // ── meta 머지 ──────────────────────────────
   const meta: HarnessMeta = {
@@ -314,9 +383,11 @@ function mergeWithStatic(
 
   // ── agents 머지 ────────────────────────────
   // 스켈레톤 에이전트를 기준으로 AI 가 같은 id 의 에이전트를 반환했으면 [AI] 필드를 채운다.
-  const aiAgentMap = new Map((aiResult.agents ?? []).map((a) => [a.id, a]))
+  const aiAgentMap = new Map(safeAIAgents.map((a) => [a.id, a]))
   const agents: HarnessAgent[] = (skeleton.agents ?? []).map((stub, i) => {
     const aiAgent = aiAgentMap.get(stub.id)
+    // [AI] agents[].model 화이트리스트 검증 — AI 가 잘못된 값 반환 시 'unknown' 대체.
+    // [S] model(stub.model) 은 정적 값이므로 덮어쓰지 않음 — 이 검증은 AI 가 새 에이전트를 추가할 때만 의미 있음.
     const merged: HarnessAgent = {
       // [S] 필드 — 덮어쓰기 금지
       id: stub.id,
@@ -326,16 +397,16 @@ function mergeWithStatic(
       tools: stub.tools,
       // [AI] 필드 — AI 에서 채움 (없으면 빈 값 유지)
       role: aiAgent?.role || '',
-      reads: aiAgent?.reads ?? [],
-      writes: aiAgent?.writes ?? [],
+      reads: ensureArray<string>(aiAgent?.reads),
+      writes: ensureArray<string>(aiAgent?.writes),
       ...(aiAgent?.phaseClass ? { phaseClass: aiAgent.phaseClass } : {}),
       ...(aiAgent?.escalation ? { escalation: aiAgent.escalation } : {}),
       ...(aiAgent?.signals ? { signals: aiAgent.signals } : {}),
       ...(aiAgent?.riskNote ? { riskNote: aiAgent.riskNote } : {}),
     }
     if (aiAgent?.role) provenance[`agents[${i}].role`] = 'ai'
-    if (aiAgent?.reads?.length) provenance[`agents[${i}].reads`] = 'ai'
-    if (aiAgent?.writes?.length) provenance[`agents[${i}].writes`] = 'ai'
+    if (aiAgent?.reads && ensureArray<string>(aiAgent.reads).length) provenance[`agents[${i}].reads`] = 'ai'
+    if (aiAgent?.writes && ensureArray<string>(aiAgent.writes).length) provenance[`agents[${i}].writes`] = 'ai'
     if (aiAgent?.phaseClass) provenance[`agents[${i}].phaseClass`] = 'ai'
     if (aiAgent?.escalation) provenance[`agents[${i}].escalation`] = 'ai'
     if (aiAgent?.signals) provenance[`agents[${i}].signals`] = 'ai'
@@ -345,26 +416,48 @@ function mergeWithStatic(
 
   // AI 가 스켈레톤에 없던 새 에이전트를 추가한 경우 — 포함 (AI 가 산문에서 발견한 에이전트)
   // 단, AI 가 반환한 에이전트라도 이미 skeleton 에 있는 것은 위에서 처리됐으므로 새 것만.
+  // 새 에이전트의 model 필드도 화이트리스트 검증 적용.
   const skeletonIds = new Set((skeleton.agents ?? []).map((a) => a.id))
-  for (const aiAgent of aiResult.agents ?? []) {
+  for (const aiAgent of safeAIAgents) {
     if (!skeletonIds.has(aiAgent.id)) {
-      agents.push(aiAgent)
+      const sanitizedModel = sanitizeAgentModel(aiAgent.model, aiAgent.id, aiValidationWarnings)
+      agents.push({ ...aiAgent, model: sanitizedModel })
       const idx = agents.length - 1
       provenance[`agents[${idx}].id`] = 'ai'
       provenance[`agents[${idx}].role`] = 'ai'
     }
   }
 
-  // ── levels — 전부 AI 몫 ────────────────────
-  const levels: HarnessLevel[] = (aiResult.levels ?? []).map((l, i) => {
-    provenance[`levels[${i}].id`] = 'ai'
-    provenance[`levels[${i}].name`] = 'ai'
-    provenance[`levels[${i}].agentChain`] = 'ai'
-    return l
-  })
+  // ── levels — 전부 AI 몫, id 화이트리스트 검증 ──────────────────────────────
+  // L0~L3 외의 id 를 가진 레벨은 드롭 + warning
+  const levels: HarnessLevel[] = []
+  let levelIdx = 0
+  for (const l of safeAILevels) {
+    const validId = validateLevelId(l.id)
+    if (validId === null) {
+      aiValidationWarnings.push(`AI 출력 검증: levels[].id 값 "${String(l.id)}" 이 L0~L3 범위 밖이어서 드롭됨`)
+      continue
+    }
+    provenance[`levels[${levelIdx}].id`] = 'ai'
+    provenance[`levels[${levelIdx}].name`] = 'ai'
+    provenance[`levels[${levelIdx}].agentChain`] = 'ai'
+    levels.push({ ...l, id: validId })
+    levelIdx++
+  }
 
-  // ── triage — 전부 AI 몫 ───────────────────
-  const triage: HarnessTriage = aiResult.triage ?? { questions: [], rules: [] }
+  // ── triage — 전부 AI 몫, rules[].then 화이트리스트 검증 ───────────────────
+  // rules[].then 이 L0~L3 밖이면 해당 rule 드롭 + warning
+  const safeRules = safeAITriageRules.filter((r) => {
+    const validThen = validateLevelId((r as { then?: unknown }).then)
+    if (validThen === null) {
+      aiValidationWarnings.push(`AI 출력 검증: triage.rules[].then 값 "${String((r as { then?: unknown }).then)}" 이 L0~L3 범위 밖이어서 해당 규칙 드롭됨`)
+      return false
+    }
+    return true
+  })
+  const triage: HarnessTriage = aiResult.triage
+    ? { ...aiResult.triage, questions: safeAITriageQuestions, rules: safeRules }
+    : { questions: [], rules: [] }
   if (aiResult.triage) {
     provenance['triage.questions'] = 'ai'
     provenance['triage.rules'] = 'ai'
@@ -373,30 +466,35 @@ function mergeWithStatic(
 
   // ── artifacts 머지 ─────────────────────────
   // 스켈레톤 artifact(템플릿 파일 기반)는 [S] 필드(id, template) 보호.
-  const aiArtifactMap = new Map((aiResult.artifacts ?? []).map((a) => [a.id, a]))
+  const aiArtifactMap = new Map(safeAIArtifacts.map((a) => [a.id, a]))
   const skeletonArtifacts: HarnessArtifact[] = (skeleton.artifacts ?? []).map((sa, i) => {
     const aiArt = aiArtifactMap.get(sa.id)
+    // [AI] persist 화이트리스트 검증 — 허용 값 밖이면 'unknown' 대체
+    const safePersist = aiArt?.persist !== undefined
+      ? sanitizePersist(aiArt.persist, sa.id, aiValidationWarnings)
+      : 'unknown'
     const merged: HarnessArtifact = {
       // [S] 필드
       id: sa.id,
       template: sa.template,
       // [AI] 필드
-      consumers: aiArt?.consumers ?? [],
-      persist: aiArt?.persist ?? 'unknown',
+      consumers: ensureArray<string>(aiArt?.consumers),
+      persist: safePersist,
       ...(aiArt?.producer ? { producer: aiArt.producer } : {}),
       ...(aiArt?.location ? { location: aiArt.location } : {}),
     }
     if (aiArt?.producer) provenance[`artifacts[${i}].producer`] = 'ai'
-    if (aiArt?.consumers?.length) provenance[`artifacts[${i}].consumers`] = 'ai'
-    if (aiArt?.persist && aiArt.persist !== 'unknown') provenance[`artifacts[${i}].persist`] = 'ai'
+    if (ensureArray<string>(aiArt?.consumers).length) provenance[`artifacts[${i}].consumers`] = 'ai'
+    if (safePersist !== 'unknown') provenance[`artifacts[${i}].persist`] = 'ai'
     if (aiArt?.location) provenance[`artifacts[${i}].location`] = 'ai'
     return merged
   })
   // AI 가 템플릿 없는 산출물을 추가한 경우 포함
   const skeletonArtifactIds = new Set((skeleton.artifacts ?? []).map((a) => a.id))
-  for (const aiArt of aiResult.artifacts ?? []) {
+  for (const aiArt of safeAIArtifacts) {
     if (!skeletonArtifactIds.has(aiArt.id)) {
-      skeletonArtifacts.push(aiArt)
+      const safePersist = sanitizePersist(aiArt.persist, aiArt.id, aiValidationWarnings)
+      skeletonArtifacts.push({ ...aiArt, persist: safePersist })
       const idx = skeletonArtifacts.length - 1
       provenance[`artifacts[${idx}].id`] = 'ai'
     }
@@ -462,6 +560,7 @@ function mergeWithStatic(
   const warnings = [
     ...(skeleton.warnings ?? []),
     ...(aiResult.warnings ?? []),
+    ...aiValidationWarnings,
   ]
 
   return {

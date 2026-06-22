@@ -62,20 +62,5 @@ export function computeBundleHash(entries: FileHashEntry[]): string {
   return hash.digest('hex')
 }
 
-/**
- * taskHash 계산 — bundleHash + 정규화된 태스크 텍스트의 SHA-256.
- * 같은 번들 + 같은 태스크 입력에서 동일한 해시를 반환한다.
- *
- * 태스크 텍스트는 소문자 변환 + 연속 공백 정규화 후 해시에 포함한다.
- *
- * @param bundleHash 번들 해시 (computeBundleHash 결과)
- * @param taskText 태스크 평문 또는 두레이 URL
- */
-export function computeTaskHash(bundleHash: string, taskText: string): string {
-  const normalizedTask = taskText.toLowerCase().replace(/\s+/g, ' ').trim()
-  return createHash('sha256')
-    .update(bundleHash)
-    .update('\0')
-    .update(normalizedTask)
-    .digest('hex')
-}
+// taskHash 계산은 taskHash.ts 로 일원화됨 (schemaVersion 포함, ADR-004).
+// 이 파일에서의 computeTaskHash 중복 export 는 제거함 — import 는 './taskHash' 를 사용할 것.

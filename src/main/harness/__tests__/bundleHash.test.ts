@@ -10,8 +10,10 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { computeBundleHash, computeTaskHash } from '../bundleHash'
+import { computeBundleHash } from '../bundleHash'
 import type { FileHashEntry } from '../bundleHash'
+// computeTaskHash 는 taskHash.ts 로 일원화됨 (schemaVersion 포함)
+import { computeTaskHash } from '../taskHash'
 
 const makeEntry = (relativePath: string, mtimeMs = 1000, size = 100, frontmatterRaw = ''): FileHashEntry => ({
   relativePath,
