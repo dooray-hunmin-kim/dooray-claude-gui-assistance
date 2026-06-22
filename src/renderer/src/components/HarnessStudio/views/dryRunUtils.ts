@@ -169,3 +169,28 @@ export function hasMeaningfulResult(result: DryRunResult): boolean {
     result.highlightPath.length > 0
   )
 }
+
+// ─────────────────────────────────────────────
+// 프로젝트 경로 표시 유틸
+// ─────────────────────────────────────────────
+
+/**
+ * 절대경로에서 표시용 짧은 라벨을 만든다.
+ *
+ * 긴 경로를 그대로 보여주면 UI 가 넘치므로 마지막 2개 세그먼트만 표시한다.
+ * 예) '/Users/alice/projects/my-app' → 'projects/my-app'
+ * 예) '/my-app' → 'my-app'
+ * 빈 문자열이나 null 이 들어오면 빈 문자열 반환.
+ *
+ * @param absolutePath - 선택된 프로젝트 루트 절대경로
+ * @returns 표시용 짧은 경로 문자열
+ */
+export function formatProjectPath(absolutePath: string): string {
+  if (!absolutePath) return ''
+  // 경로 구분자 통일 (Windows 역슬래시 대응)
+  const normalized = absolutePath.replace(/\\/g, '/')
+  const segments = normalized.split('/').filter(Boolean)
+  if (segments.length === 0) return absolutePath
+  if (segments.length === 1) return segments[0]
+  return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`
+}

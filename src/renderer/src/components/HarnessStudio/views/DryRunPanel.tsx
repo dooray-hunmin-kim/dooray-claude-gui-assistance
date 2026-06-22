@@ -24,7 +24,10 @@ import {
   RotateCcw,
   Eye,
   Link,
-  Info
+  Info,
+  FolderOpen,
+  X,
+  CheckCircle2
 } from 'lucide-react'
 import type { DryRunResult, HarnessModel } from '@shared/types/harness'
 import Button from '@/components/common/ds/Button'
@@ -39,7 +42,8 @@ import {
   levelTone,
   LEVEL_LABEL,
   isDoorayTaskUrl,
-  hasMeaningfulResult
+  hasMeaningfulResult,
+  formatProjectPath
 } from './dryRunUtils'
 import type { TimelineStep } from './dryRunUtils'
 
@@ -84,11 +88,29 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
   const [panelState, setPanelState] = useState<PanelState>('idle')
   const [result, setResult] = useState<DryRunResult | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [projectPath, setProjectPath] = useState<string | null>(null)
+  const [pickingDir, setPickingDir] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { progress, start: startProgress, done: doneProgress, isActive } = useAIProgress()
 
-  const canSubmit = taskText.trim().length > 0 && !isActive
+  const canSubmit = taskText.trim().length > 0 && !isActive && !pickingDir
+
+  /** 프로젝트 폴더 선택 다이얼로그를 열어 선택 경로를 state 에 저장한다. */
+  const handlePickDir = useCallback(async () => {
+    setPickingDir(true)
+    try {
+      const picked = await window.api.harness.pickProjectDir()
+      if (picked) setProjectPath(picked)
+    } finally {
+      setPickingDir(false)
+    }
+  }, [])
+
+  /** 선택된 프로젝트 경로를 지운다. */
+  const handleClearProjectPath = useCallback(() => {
+    setProjectPath(null)
+  }, [])
 
   const handleSubmit = useCallback(async () => {
     const trimmed = taskText.trim()
@@ -104,7 +126,8 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
       const res = await window.api.harness.dryrun({
         path: model.meta.source,
         taskText: trimmed,
-        requestId
+        requestId,
+        ...(projectPath ? { projectPath } : {})
       })
       doneProgress()
       setResult(res)
@@ -114,7 +137,7 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
       setErrorMsg(e instanceof Error ? e.message : String(e))
       setPanelState('error')
     }
-  }, [taskText, model.meta.source, startProgress, doneProgress])
+  }, [taskText, model.meta.source, startProgress, doneProgress, projectPath])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -151,6 +174,10 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
         onKeyDown={handleKeyDown}
         textareaRef={textareaRef}
         bundleName={model.meta.name}
+        projectPath={projectPath}
+        pickingDir={pickingDir}
+        onPickDir={() => void handlePickDir()}
+        onClearProjectPath={handleClearProjectPath}
       />
     )
   }
@@ -163,7 +190,7 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
           label={
             <div className="flex flex-col items-center gap-2 mt-2">
               <span className="text-sm text-[color:var(--text-secondary)]">
-                {progress.message || 'AI(Haiku) 가 레벨을 추정하는 중...'}
+                {progress.message || (projectPath ? '프로젝트 분석 + 레벨 추정 중...' : 'AI(Haiku) 가 레벨을 추정하는 중...')}
               </span>
               {progress.elapsedMs > 0 && (
                 <span className="text-xs text-[color:var(--text-tertiary)]">
@@ -198,6 +225,7 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
     <ResultView
       result={result!}
       taskText={taskText}
+      projectPath={projectPath}
       onReset={handleReset}
       onGoToFlow={handleGoToFlow}
       hasFlowCallback={Boolean(onHighlight && onGoToFlow)}
@@ -217,6 +245,14 @@ interface InputFormProps {
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
   textareaRef: React.RefObject<HTMLTextAreaElement>
   bundleName: string
+  /** 선택된 프로젝트 루트 경로. null 이면 미선택 상태. */
+  projectPath: string | null
+  /** 폴더 선택 다이얼로그 호출 중 여부 */
+  pickingDir: boolean
+  /** 프로젝트 폴더 선택 버튼 핸들러 */
+  onPickDir: () => void
+  /** 선택된 프로젝트 경로 지우기 핸들러 */
+  onClearProjectPath: () => void
 }
 
 function InputForm({
@@ -226,7 +262,11 @@ function InputForm({
   onSubmit,
   onKeyDown,
   textareaRef,
-  bundleName
+  bundleName,
+  projectPath,
+  pickingDir,
+  onPickDir,
+  onClearProjectPath
 }: InputFormProps): JSX.Element {
   const isDooray = isDoorayTaskUrl(taskText)
 
@@ -278,6 +318,51 @@ function InputForm({
           </p>
         </div>
 
+        {/* 프로젝트 폴더 선택 영역 */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-semibold text-[color:var(--text-secondary)] uppercase tracking-wider">
+            프로젝트 폴더 (선택)
+          </label>
+
+          {projectPath ? (
+            /* 경로 선택됨 */
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-[color:var(--bg-border)] bg-[color:var(--bg-surface)]">
+              <CheckCircle2 size={13} className="flex-none text-[color:var(--c-emerald-fg)]" />
+              <span
+                className="flex-1 text-xs text-[color:var(--text-primary)] font-mono truncate"
+                title={projectPath}
+              >
+                {formatProjectPath(projectPath)}
+              </span>
+              <button
+                type="button"
+                onClick={onClearProjectPath}
+                className="flex-none p-0.5 rounded text-[color:var(--text-tertiary)] hover:text-[color:var(--text-secondary)] transition-colors"
+                title="선택 취소"
+                aria-label="프로젝트 폴더 선택 취소"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            /* 미선택 상태 */
+            <div className="flex items-center gap-3">
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<FolderOpen size={13} />}
+                onClick={onPickDir}
+                disabled={pickingDir}
+              >
+                {pickingDir ? '선택 중...' : '프로젝트 폴더 선택'}
+              </Button>
+              <p className="text-xs text-[color:var(--text-tertiary)] leading-relaxed">
+                선택 안 하면 태스크 텍스트만으로 추정합니다(근사)
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* 실행 버튼 */}
         <div className="flex items-center justify-end">
           <Button
@@ -321,12 +406,14 @@ function InputForm({
 interface ResultViewProps {
   result: DryRunResult
   taskText: string
+  /** 추정에 사용된 프로젝트 경로. null 이면 태스크 텍스트만으로 추정한 결과. */
+  projectPath: string | null
   onReset: () => void
   onGoToFlow: () => void
   hasFlowCallback: boolean
 }
 
-function ResultView({ result, taskText, onReset, onGoToFlow, hasFlowCallback }: ResultViewProps): JSX.Element {
+function ResultView({ result, taskText, projectPath, onReset, onGoToFlow, hasFlowCallback }: ResultViewProps): JSX.Element {
   const timeline = buildTimeline(result.highlightPath, result.parallelGroups)
   const meaningful = hasMeaningfulResult(result)
 
@@ -350,6 +437,29 @@ function ResultView({ result, taskText, onReset, onGoToFlow, hasFlowCallback }: 
             재입력
           </Button>
         </div>
+
+        {/* 추정 맥락 배지 */}
+        {projectPath ? (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[color:var(--c-emerald-bg)] border border-[color:var(--bg-border)]">
+            <CheckCircle2 size={13} className="flex-none text-[color:var(--c-emerald-fg)]" />
+            <span className="text-xs text-[color:var(--c-emerald-fg)] font-medium">
+              프로젝트 맥락 기반 추정
+            </span>
+            <span
+              className="text-xs text-[color:var(--text-secondary)] font-mono truncate"
+              title={projectPath}
+            >
+              ({formatProjectPath(projectPath)})
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[color:var(--bg-surface)] border border-[color:var(--bg-border)]">
+            <AlertCircle size={13} className="flex-none text-[color:var(--c-yellow-fg)]" />
+            <p className="text-xs text-[color:var(--text-secondary)]">
+              태스크 텍스트만으로 추정한 근사치 — 실제 실행 시 코드베이스 기준으로 재판정될 수 있습니다
+            </p>
+          </div>
+        )}
 
         {/* 추정 레벨 */}
         <LevelCard result={result} />
