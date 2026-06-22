@@ -76,13 +76,8 @@ HarnessModel JSON 의 비어있는 [AI] 필드를 채우는 전문가입니다.
 - loops: string[]            루프/피드백 구간 설명 목록
 - stateMachine: { transitions: {from,on,to}[] }|undefined
 
-### score (전체 AI 추정 — 기계가독 소스 없음)
-- axes: { key, value, max, note }[]
-  key 는 enforcement|controlFlow|stateManagement|blockingGates|feedbackLoops|observability 중 하나
-  value 는 0~max 사이 정수
-  max 는 10 고정
-- total: number
-- rationale: string
+### score
+**score 는 채우지 마세요(생략).** 6축 점수는 앱이 구조 신호로 결정론적으로 계산하므로 AI 추정이 불필요합니다.
 
 ### warnings
 - degradation 경고 목록 — 번들에서 추출하지 못한 정보를 여기에 기록
@@ -146,7 +141,7 @@ ${rawBundleText}
   "triage": { "questions": [...], "rules": [...], "securityOverride"? },
   "artifacts": [ { "id": "<매칭키 필수>", "producer"?, "consumers", "location"?, "persist" } ],
   "controlFlow": { "gates": [ { "phase": "<매칭키 필수>", "description" } ], "hooks": [ { "file": "<매칭키>", "enforces" } ], "parallelGroups", "loops", "stateMachine"? },
-  "score"?: {...}, "warnings": [...], "provenance": {...}
+  "warnings": [...], "provenance": {...}
 }
 \`\`\`
 

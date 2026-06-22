@@ -34,6 +34,7 @@ import type {
 } from '../../shared/types/harness'
 import type { RawBundle, RawGate, RawHook } from './BundleScanner'
 import { CURRENT_SCHEMA_VERSION } from './HarnessCache'
+import { computeHarnessScore } from './computeScore'
 
 // ─────────────────────────────────────────────
 // AIService 인터페이스 (주입 추상화 — 테스트 모킹용)
@@ -556,10 +557,12 @@ function mergeWithStatic(
   if (aiResult.controlFlow?.signalEnum) provenance['controlFlow.signalEnum'] = 'ai'
   if (aiResult.controlFlow?.stateMachine) provenance['controlFlow.stateMachine'] = 'ai'
 
-  // ── score / overlay — 전부 AI 몫 ──────────
-  if (aiResult.score) {
-    provenance['score'] = 'ai'
-  }
+  // ── score — 구조 기반 결정론 계산 (AI 추정 아님) ──────────
+  // 6축은 정량 신호(게이트/hook/loops/레벨/상태기계 등)로 매길 수 있으므로
+  // 모델 구조에서 직접 계산한다. 매 실행 동일·근거(note) 명확. AI score 는 무시.
+  const score = computeHarnessScore({ agents, levels, artifacts: skeletonArtifacts, controlFlow })
+  provenance['score'] = 'inferred'
+
   if (aiResult.overlay) {
     provenance['overlay'] = 'ai'
   }
@@ -579,7 +582,7 @@ function mergeWithStatic(
     triage,
     artifacts: skeletonArtifacts,
     controlFlow,
-    ...(aiResult.score ? { score: aiResult.score } : {}),
+    score,
     ...(aiResult.overlay ? { overlay: aiResult.overlay } : {}),
     warnings,
     provenance,

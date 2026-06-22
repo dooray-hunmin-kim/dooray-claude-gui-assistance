@@ -124,7 +124,8 @@ export function ScorePanel({ model, sourcePath }: ScorePanelProps): JSX.Element 
           <span>
             이 하네스가 <strong>"고삐를 얼마나 잘 쥐는지"</strong> 6축으로 점수를 매긴 결과입니다.
             강제력·제어흐름·상태·차단게이트·피드백루프·관측가능성 각 축이 높을수록
-            자율 에이전트를 더 단단하게 조율합니다. 숫자는 AI 추정값입니다.
+            자율 에이전트를 더 단단하게 조율합니다. 점수는 <strong>구조 신호(게이트·hook·루프·레벨 등)
+            기반으로 결정론적으로 계산</strong>되며(AI 추정 아님), 각 축의 산출 근거는 아래 표에 표시됩니다.
           </span>
         }
         topic="이 점수 6축이 각각 무엇을 의미하는지 설명"
