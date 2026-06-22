@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Workflow, Plus, History, Clock, Download, Stethoscope, GitCompare, Search, Package, ArrowLeft, RefreshCw, Cpu } from 'lucide-react'
+import { Workflow, Plus, History, Clock, Download, Stethoscope, GitCompare, Search, Package, ArrowLeft, RefreshCw, Cpu, Pencil } from 'lucide-react'
 import { useAIProgress, formatElapsed } from '@/hooks/useAIProgress'
 import type { LucideIcon } from 'lucide-react'
 import type { HarnessModel, CachedHarnessEntry, DiscoveredHarness } from '@shared/types/harness'
+import type { AgentSourceMap } from '@shared/types/harness-edit'
 import Button from '@/components/common/ds/Button'
 import Chip from '@/components/common/ds/Chip'
 import SegTabs from '@/components/common/ds/SegTabs'
@@ -20,6 +21,7 @@ import { DryRunPanel } from './views/DryRunPanel'
 import { DoctorPanel } from './views/DoctorPanel'
 import { CompareView } from './views/CompareView'
 import { downloadHtmlReport } from './export/exportHtml'
+import { EditPanel } from './edit/EditPanel'
 
 interface HarnessStudioViewProps {
   active?: boolean
@@ -39,6 +41,16 @@ const STUDIO_TABS: SegTabItem<StudioTab>[] = [
   { key: 'doctor',    label: 'Doctor' },
   { key: 'compare',   label: 'Compare' }
 ]
+
+// ─────────────────────────────────────────────
+// 편집 모드 관련 상수
+// ─────────────────────────────────────────────
+
+/**
+ * Harness Studio 편집 모드 상태.
+ * 'off' 가 기본값 — 기존 read-only 8뷰 동작을 100% 보존한다.
+ */
+type EditMode = 'off' | 'on'
 
 /**
  * Harness Studio 진입점 뷰.
@@ -69,6 +81,15 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
   const [renormalizing, setRenormalizing] = useState(false)
   const [renormError, setRenormError] = useState<string | null>(null)
   const { progress: renormProgress, start: startRenormProgress, done: doneRenormProgress } = useAIProgress()
+
+  // ── 편집 모드 (기본 OFF — read-only 회귀 0) ─────────────────────
+  // OFF 상태에서는 EditPanel 이 마운트되지 않아 기존 8뷰 동작이 100% 보존된다.
+  const [editMode, setEditMode] = useState<EditMode>('off')
+  // 편집 모드에 필요한 AgentSourceMap / fileTree — 편집 진입 시 fetchSourceMap 으로 채운다.
+  const [sourceMap, setSourceMap] = useState<AgentSourceMap>({})
+  const [fileTree, setFileTree] = useState<string[]>([])
+  const [editModeLoading, setEditModeLoading] = useState(false)
+  const [editModeError, setEditModeError] = useState<string | null>(null)
 
   // 랜딩 진입 시 최근 캐시 + 자동 발견을 함께 로드한다(발견은 버튼 없이 자동).
   const loadLanding = useCallback(async () => {
@@ -151,11 +172,60 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
     }
   }, [model, startRenormProgress, doneRenormProgress])
 
+  // ── 편집 모드 진입 — AgentSourceMap + fileTree 를 readFile 으로 사전 로드 ──
+  // AgentSourceMap 은 첫 번째 readFile('') 응답에 포함된다고 가정.
+  // fileTree 는 model.meta.source 를 기준으로 scan 결과에서 가져온다.
+  const enterEditMode = useCallback(async () => {
+    if (!model) return
+    setEditModeLoading(true)
+    setEditModeError(null)
+    try {
+      // AgentSourceMap 을 readFile 로 가져온다 (빈 relPath 는 sourceMap 전용 요청).
+      // 단, API 가 sourceMap 을 반환하지 않을 수도 있으므로 graceful degradation.
+      let resolvedSourceMap: AgentSourceMap = {}
+      let resolvedFileTree: string[] = []
+
+      try {
+        const { sourceMap: sm } = await window.api.harness.edit.readFile(model.meta.source, '.harness-sourcemap')
+        if (sm) resolvedSourceMap = sm
+      } catch {
+        // sourceMap 없어도 편집 모드는 진입 가능 (form 필드가 lock 으로 폴백)
+      }
+
+      try {
+        // fileTree 는 scan 결과에 있다 — 재스캔 없이 scan API 재사용.
+        const scanResult = await window.api.harness.scan({ path: model.meta.source })
+        if (scanResult) resolvedFileTree = scanResult.fileTree
+      } catch {
+        // fileTree 없어도 raw 에디터는 빈 목록으로 동작
+      }
+
+      setSourceMap(resolvedSourceMap)
+      setFileTree(resolvedFileTree)
+      setEditMode('on')
+    } catch (e) {
+      setEditModeError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setEditModeLoading(false)
+    }
+  }, [model])
+
+  const exitEditMode = useCallback(() => {
+    setEditMode('off')
+    setEditModeError(null)
+  }, [])
+
+  // 편집 모드에서 적용 성공 시 모델 갱신
+  const handleModelUpdated = useCallback((newModel: HarnessModel) => {
+    setModel(newModel)
+  }, [])
+
   const handleReset = useCallback(() => {
     setModel(null)
     setActiveTab('overview')
     setDryRunHighlight(undefined)
     setOverlayEnabled(false)
+    setEditMode('off')
     void loadLanding()
   }, [loadLanding])
 
@@ -281,7 +351,32 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
     )
   }
 
-  // ── 모델 있음 — 6뷰 셸 ──
+  // ── 모델 있음 + 편집 모드 ON — EditPanel 전체 화면 ──
+  if (model && editMode === 'on') {
+    return (
+      <div className="flex flex-col h-full bg-[color:var(--bg-primary)]">
+        {/* 편집 모드 상단 최소 헤더 — 번들 이름만 표시 */}
+        <div className="flex items-center gap-2.5 px-4 py-2 border-b border-[color:var(--bg-border)] bg-[color:var(--bg-surface)] flex-shrink-0">
+          <Pencil size={14} className="text-[color:var(--c-orange-fg)]" />
+          <h1 className="text-sm font-semibold text-[color:var(--text-primary)]">
+            {model.meta.name}
+          </h1>
+          <Chip tone="orange" square>편집 모드</Chip>
+        </div>
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <EditPanel
+            model={model}
+            sourceMap={sourceMap}
+            fileTree={fileTree}
+            onModelUpdated={handleModelUpdated}
+            onExitEdit={exitEditMode}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // ── 모델 있음 — read-only 6뷰 셸 ──
   return (
     <div className="flex flex-col h-full bg-[color:var(--bg-primary)]">
       {/* 헤더 */}
@@ -343,6 +438,17 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
           >
             재정규화
           </Button>
+          {/* 편집 모드 진입 버튼 */}
+          <Button
+            variant="secondary"
+            size="xs"
+            leftIcon={<Pencil size={11} />}
+            onClick={() => { void enterEditMode() }}
+            disabled={editModeLoading}
+            title="번들 편집 모드 진입 (구조화 폼 / raw 에디터 / AI 명령)"
+          >
+            {editModeLoading ? '준비 중...' : '편집'}
+          </Button>
           <Button
             variant="secondary"
             size="xs"
@@ -356,6 +462,11 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
       {renormError && (
         <div className="px-4 py-1.5 text-xs text-[color:var(--c-red-fg)] bg-[color:var(--c-red-bg)] border-b border-[color:var(--bg-border)] flex-shrink-0">
           재정규화 실패: {renormError}
+        </div>
+      )}
+      {editModeError && (
+        <div className="px-4 py-1.5 text-xs text-[color:var(--c-red-fg)] bg-[color:var(--c-red-bg)] border-b border-[color:var(--bg-border)] flex-shrink-0">
+          편집 모드 진입 실패: {editModeError}
         </div>
       )}
 
