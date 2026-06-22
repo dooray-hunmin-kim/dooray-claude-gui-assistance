@@ -1,43 +1,7 @@
 import { createDAVClient } from 'tsdav'
-import { request as httpsRequest } from 'node:https'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
-import { parseICal, buildICal, patchDateTimeInIcs, patchEventFields } from './ical'
-
-/**
- * Node:https 로 직접 요청 — undici(fetch) 가 PUT 본문을 chunked 로 보내 두레이 nginx 가
- * 본문을 안 읽고 200/no-op 으로 응답하는 문제를 우회하기 위해 Content-Length 를 명시한다.
- * (fetch 는 Content-Length 가 forbidden header 라 강제 못함 → 저수준 https 사용)
- */
-function rawHttpsRequest(
-  method: string,
-  urlStr: string,
-  headers: Record<string, string>,
-  body?: string
-): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }> {
-  return new Promise((resolve, reject) => {
-    const u = new URL(urlStr)
-    const data = body !== undefined ? Buffer.from(body, 'utf-8') : undefined
-    const req = httpsRequest(
-      {
-        method,
-        hostname: u.hostname,
-        port: u.port || 443,
-        path: u.pathname + u.search, // %40 등 인코딩 그대로 보존
-        headers: { ...headers, ...(data ? { 'Content-Length': String(data.byteLength) } : {}) }
-      },
-      (res) => {
-        let buf = ''
-        res.setEncoding('utf-8')
-        res.on('data', (c) => { buf += c })
-        res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: buf }))
-      }
-    )
-    req.on('error', reject)
-    if (data) req.write(data)
-    req.end()
-  })
-}
+import { parseICal, buildICal } from './ical'
 
 export interface SyncProgress {
   calendarUrl: string
@@ -111,21 +75,6 @@ function basicAuthHeader(): string {
   return 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`, 'utf-8').toString('base64')
 }
 
-/**
- * If-Match 헤더용 ETag 정규화 — 반드시 큰따옴표로 감싼 형태여야 한다.
- * 우리는 sync 시 etag 의 따옴표를 벗겨 저장하므로(`99e7...`), PUT 의 If-Match 에는 다시 큰따옴표를 씌운다.
- * Why: 두레이 CalDAV 는 따옴표 없는 If-Match 를 "불일치"로 보고 PUT 을 200 으로 받아주면서도
- * 본문 변경을 무시한다(=수정이 서버에 안 먹힘). 따옴표를 씌우면 정상 매칭되어 반영된다.
- */
-function quoteEtag(etag?: string): string | undefined {
-  if (!etag) return undefined
-  // 이미 캐시에 &quot; 형태로 잘못 저장된 etag 도 복원 (구버전 파싱 잔재)
-  let t = etag.trim().replace(/&quot;/gi, '"').replace(/&#34;/g, '"')
-  if (!t) return undefined
-  if (/^(W\/)?".*"$/.test(t)) return t
-  t = t.replace(/^["']|["']$/g, '')
-  return `"${t}"`
-}
 
 function fmtCalDavTime(iso: string): string {
   const d = new Date(iso)
@@ -450,52 +399,6 @@ export class CalDAVClient {
     console.log('[CalDAV PUT createEvent]', objectUrl, 'status=', resp.status)
   }
 
-  /**
-   * 일정의 DTSTART/DTEND 만 갱신 — 막대 드래그(이동/리사이즈)용.
-   * 기존 ICS 의 ATTENDEE/RRULE/ALARM 등을 보존하기 위해 라인 단위로 교체.
-   * 두레이 CalDAV 에 PUT + If-Match (etag) 로 충돌 방지.
-   * @returns 갱신된 etag (서버가 ETag 헤더로 반환). 없으면 undefined.
-   */
-  async updateEventDateTime(input: {
-    href: string
-    etag?: string
-    existingIcs: string
-    start: string
-    end: string
-    allDay: boolean
-  }): Promise<{ etag?: string }> {
-    const newIcs = patchDateTimeInIcs(input.existingIcs, {
-      start: input.start,
-      end: input.end,
-      allDay: input.allDay
-    })
-    const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href
-    const auth = basicAuthHeader()
-    const resp = await fetch(absUrl, {
-      method: 'PUT',
-      headers: {
-        Authorization: auth,
-        'Content-Type': 'text/calendar; charset=utf-8',
-        ...(input.etag ? { 'If-Match': quoteEtag(input.etag)! } : {})
-      },
-      body: newIcs
-    })
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '')
-      throw new Error(`CalDAV PUT 실패: ${resp.status} ${body.slice(0, 200)}`)
-    }
-    let newEtag = resp.headers.get('etag') ?? undefined
-    // 두레이는 PUT 응답에 ETag 를 안 주는 경우가 있어 직후 GET 으로 보정 (incrementalSync 변경 감지용)
-    if (!newEtag) {
-      try {
-        const v = await fetch(absUrl, { method: 'GET', headers: { Authorization: auth } })
-        newEtag = v.headers.get('etag') ?? undefined
-      } catch { /* ok */ }
-    }
-    console.log('[CalDAV PUT]', absUrl, 'status=', resp.status, 'newEtag=', newEtag)
-    return { etag: newEtag?.replace(/^["']|["']$/g, '') }
-  }
-
   async deleteEvent(url: string, etag?: string): Promise<void> {
     // tsdav 우회: 두레이 CalDAV 에 직접 HTTP DELETE
     // 두레이 응답의 href 는 path 만 오므로 절대 URL 로 변환
@@ -515,83 +418,6 @@ export class CalDAVClient {
     console.log('[CalDAV DELETE]', absUrl, 'status=', resp.status)
   }
 
-  /**
-   * 일정의 모든 속성을 갱신 — 상세 편집 모달용.
-   * 기존 ICS 를 파싱하여 UID/CREATED 는 보존하고, 나머지 필드를 새 값으로 교체.
-   * 두레이 CalDAV 에 PUT + If-Match (etag) 로 충돌 방지.
-   * @returns 갱신된 etag (서버가 ETag 헤더로 반환). 없으면 undefined.
-   */
-  async updateEvent(input: {
-    href: string
-    etag?: string
-    existingIcs: string
-    summary: string
-    description?: string
-    location?: string
-    start: string
-    end: string
-    allDay: boolean
-  }): Promise<{ etag?: string }> {
-    if (!parseICal(input.existingIcs)) throw new Error('기존 ICS 파싱 실패')
-
-    // 원본 ICS 의 두레이 고유 속성(X-DOORAY-* 등)을 보존한 채 편집 필드만 교체.
-    // (buildICal 재구성은 X-DOORAY-* 누락으로 두레이가 200 으로 받고도 반영 안 함. VTIMEZONE 은 제거해 500 회피.)
-    const newIcs = patchEventFields(input.existingIcs, {
-      summary: input.summary,
-      description: input.description,
-      location: input.location,
-      start: input.start,
-      end: input.end,
-      allDay: input.allDay
-    })
-    
-    const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href
-    const auth = basicAuthHeader()
-
-    // 서버에 PUT 후 GET 으로 실제 반영 여부 확인. summary 가 새 값이면 성공.
-    const verifyApplied = async (label: string): Promise<{ applied: boolean; etag?: string }> => {
-      try {
-        const verify = await fetch(absUrl, { method: 'GET', headers: { Authorization: auth, 'Cache-Control': 'no-cache' } })
-        const vtext = await verify.text().catch(() => '')
-        const vparsed = parseICal(vtext)
-        const vEtag = verify.headers.get('etag') ?? undefined
-        const applied = vparsed?.summary === input.summary
-        console.log(`[CalDAV PUT verify:${label}] GET status=`, verify.status, 'serverSummary=', vparsed?.summary, 'applied=', applied, 'etag=', vEtag)
-        return { applied, etag: vEtag }
-      } catch (e) {
-        console.warn(`[CalDAV PUT verify:${label}] GET 실패:`, e)
-        return { applied: false }
-      }
-    }
-
-    const doPut = async (label: string, withIfMatch: boolean): Promise<number> => {
-      const headers: Record<string, string> = { Authorization: auth, 'Content-Type': 'text/calendar; charset=utf-8' }
-      if (withIfMatch && input.etag) headers['If-Match'] = quoteEtag(input.etag)!
-      const r = await rawHttpsRequest('PUT', absUrl, headers, newIcs)
-      console.log(`[CalDAV PUT ${label}] status=`, r.status, 'etagHdr=', r.headers['etag'], 'allHeaders=', JSON.stringify(r.headers))
-      return r.status
-    }
-
-    console.log('[CalDAV PUT updateEvent] ifMatch=', input.etag ? quoteEtag(input.etag) : '(none)', 'bodyLen=', Buffer.byteLength(newIcs, 'utf-8'), 'url=', absUrl)
-    console.log('[CalDAV PUT updateEvent] BODY>>>\n' + newIcs.replace(/\r\n/g, '\n'))
-
-    // 1차: If-Match 포함 PUT (node:https, Content-Length 명시)
-    let status = await doPut('A(if-match)', true)
-    if (status >= 400) throw new Error(`CalDAV PUT 실패: ${status}`)
-    let v = await verifyApplied('A')
-
-    // 2차: 안 먹었으면 If-Match 없이 재시도
-    if (!v.applied) {
-      console.log('[CalDAV PUT updateEvent] A 미반영 → If-Match 없이 재시도(B)')
-      status = await doPut('B(no-if-match)', false)
-      if (status < 400) v = await verifyApplied('B')
-    }
-
-    if (!v.applied) {
-      throw new Error('CalDAV 서버가 일정 변경을 반영하지 않았습니다 (PUT 200/no-op). 로그의 verify 결과를 확인하세요.')
-    }
-    return { etag: v.etag?.replace(/^["']|["']$/g, '') }
-  }
 
   // ─────────────────────────────────────────────────────────────
   // v1.5 Sync — ICS 객체를 디스크에 영구 저장 (CalendarObjectsStore)

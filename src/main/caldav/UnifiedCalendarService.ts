@@ -13,6 +13,7 @@ import { LocalEventStore } from './LocalEventStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
 import { parseICal, patchDateTimeInIcs, patchEventFields } from './ical'
 import { HolidayService, HOLIDAY_CALENDAR_ID, HOLIDAY_CALENDAR_NAME } from '../holiday/HolidayService'
+import { DoorayCalendarApi, calendarIdFromCalDavUrl, eventIdFromUid } from '../dooray/DoorayCalendarApi'
 
 /**
  * v1.5 통합 캘린더 서비스 — ObjectsStore 기반.
@@ -39,7 +40,12 @@ export class UnifiedCalendarService {
   private recentlyDeleted = new Map<string, number>()
   private static RECENT_DELETE_GRACE_MS = 60_000
 
-  constructor(private readonly caldav: CalDAVClient, private readonly holiday: HolidayService) {}
+  constructor(
+    private readonly caldav: CalDAVClient,
+    private readonly holiday: HolidayService,
+    /** 두레이 네이티브 캘린더 REST — CalDAV PUT 이 막혀 있어 생성/수정은 이 API 로 처리. */
+    private readonly doorayCal: DoorayCalendarApi
+  ) {}
 
   /** ICS 캐시가 비어있고 자격증명 있으면 백그라운드 fullSync 1회 트리거 */
   private maybeAutoSync(): void {
@@ -386,31 +392,29 @@ export class UnifiedCalendarService {
         createdAt: updated.createdAt
       }
     }
-    // CalDAV
+    // CalDAV — 막대 드래그(시각만 변경). CalDAV PUT 은 두레이가 막아 200/no-op 이므로 네이티브 REST 로 갱신.
     if (!input.caldavUrl) throw new Error('CalDAV 일정 수정에 객체 URL이 필요합니다.')
     const existing = CalendarObjectsStore.getCalendar(input.calendarId)[input.caldavUrl]
     if (!existing) throw new Error('수정할 일정이 캐시에 없습니다. 동기화 후 다시 시도해주세요.')
-    const { etag: newEtag } = await this.caldav.updateEventDateTime({
-      href: input.caldavUrl,
-      etag: input.etag ?? existing.etag,
-      existingIcs: existing.ics,
+    const parsedExisting = parseICal(existing.ics)
+    // 드래그는 시각만 바뀌므로 제목/위치/설명은 기존 값을 그대로 전달.
+    await this.updateDoorayEvent(input.calendarId, parsedExisting?.uid ?? input.id, {
+      summary: parsedExisting?.summary ?? '(제목 없음)',
+      description: parsedExisting?.description,
+      location: parsedExisting?.location,
       start: input.start,
       end: input.end,
       allDay: input.allDay
     })
-    // 로컬 ObjectsStore 의 ICS 도 즉시 갱신 (서버 응답 기다리지 않고 다음 listEvents 가 새 데이터 반영)
+    // 로컬 ObjectsStore 의 ICS 도 즉시 갱신 (다음 listEvents 가 새 데이터 반영)
     const patched = patchDateTimeInIcs(existing.ics, {
       start: input.start,
       end: input.end,
       allDay: input.allDay
     })
-    CalendarObjectsStore.upsertObject(input.calendarId, input.caldavUrl, {
-      etag: newEtag ?? existing.etag,
-      ics: patched
-    })
+    CalendarObjectsStore.upsertObject(input.calendarId, input.caldavUrl, { etag: existing.etag, ics: patched })
     this.parsedCache = null
     this.emitUpdate()
-    // 백그라운드 incrementalSync 트리거 — 서버 정규화 결과 반영
     this.incrementalSync().catch(() => { /* 백그라운드 */ })
     const parsed = parseICal(patched)
     return {
@@ -418,7 +422,7 @@ export class UnifiedCalendarService {
       id: parsed?.uid ?? input.id,
       calendarId: input.calendarId,
       caldavUrl: input.caldavUrl,
-      etag: newEtag ?? existing.etag,
+      etag: existing.etag,
       summary: parsed?.summary ?? '',
       description: parsed?.description,
       location: parsed?.location,
@@ -427,6 +431,23 @@ export class UnifiedCalendarService {
       allDay: parsed?.allDay ?? input.allDay,
       createdAt: parsed?.createdAt
     }
+  }
+
+  /**
+   * CalDAV 캘린더의 일정을 두레이 네이티브 REST 로 갱신.
+   * input.calendarId 는 CalDAV 캘린더 URL, uid 는 ICS UID(@dooray.com 포함).
+   */
+  private async updateDoorayEvent(
+    calDavCalendarUrl: string,
+    uid: string,
+    fields: { summary: string; description?: string; location?: string; start: string; end: string; allDay: boolean }
+  ): Promise<void> {
+    const calId = calendarIdFromCalDavUrl(calDavCalendarUrl)
+    const eventId = eventIdFromUid(uid)
+    if (!calId || !eventId) {
+      throw new Error('두레이 캘린더 일정 식별에 실패했습니다 (calendarId/eventId 추출 불가).')
+    }
+    await this.doorayCal.updateEvent(calId, eventId, fields)
   }
 
   async deleteEvent(ev: { source: 'local' | 'caldav'; id: string; calendarId?: string; caldavUrl?: string; etag?: string }): Promise<void> {
@@ -491,15 +512,13 @@ export class UnifiedCalendarService {
         createdAt: updated.createdAt
       }
     }
-    // CalDAV
+    // CalDAV — 상세 편집. CalDAV PUT 은 두레이가 막아 200/no-op 이므로 네이티브 REST 로 갱신.
     if (!input.caldavUrl) throw new Error('CalDAV 일정 수정에 객체 URL 이 필요합니다.')
     const existing = CalendarObjectsStore.getCalendar(input.calendarId)[input.caldavUrl]
     if (!existing) throw new Error('수정할 일정이 캐시에 없습니다. 동기화 후 다시 시도해주세요.')
-    
-    const { etag: newEtag } = await this.caldav.updateEvent({
-      href: input.caldavUrl,
-      etag: input.etag ?? existing.etag,
-      existingIcs: existing.ics,
+    const parsedExisting = parseICal(existing.ics)
+
+    await this.updateDoorayEvent(input.calendarId, parsedExisting?.uid ?? input.id, {
       summary: input.summary,
       description: input.description,
       location: input.location,
@@ -507,8 +526,8 @@ export class UnifiedCalendarService {
       end: input.end,
       allDay: input.allDay
     })
-    
-    // 로컬 ObjectsStore 의 ICS 도 즉시 갱신 — 서버 PUT 과 동일하게 원본 보존 patch
+
+    // 로컬 ObjectsStore 의 ICS 도 즉시 갱신 — UI 가 곧바로 새 값 반영 (서버 정규화는 incrementalSync 가 보정)
     const newIcs = patchEventFields(existing.ics, {
       summary: input.summary,
       description: input.description,
@@ -517,12 +536,12 @@ export class UnifiedCalendarService {
       end: input.end,
       allDay: input.allDay
     })
-    
+
     CalendarObjectsStore.upsertObject(input.calendarId, input.caldavUrl, {
-      etag: newEtag ?? existing.etag,
+      etag: existing.etag,
       ics: newIcs
     })
-    
+
     this.parsedCache = null
     this.emitUpdate()
     this.incrementalSync().catch(() => { /* 백그라운드 */ })
@@ -533,7 +552,7 @@ export class UnifiedCalendarService {
       id: reparsed?.uid ?? input.id,
       calendarId: input.calendarId,
       caldavUrl: input.caldavUrl,
-      etag: newEtag ?? existing.etag,
+      etag: existing.etag,
       summary: reparsed?.summary ?? input.summary,
       description: reparsed?.description ?? input.description,
       location: reparsed?.location ?? input.location,
