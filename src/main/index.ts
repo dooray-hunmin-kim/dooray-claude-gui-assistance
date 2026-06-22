@@ -7,6 +7,7 @@ import { SharedSkillsService } from './skills/SharedSkillsService'
 import { ConfigWatcher } from './config/ConfigWatcher'
 import { UsageParser } from './usage/UsageParser'
 import { DoorayClient } from './dooray/DoorayClient'
+import { DoorayCalendarApi } from './dooray/DoorayCalendarApi'
 import { TaskService } from './dooray/TaskService'
 import { ErrorReportService, type ErrorReportPayload } from './error-report/ErrorReportService'
 import { feedbackService } from './feedback/FeedbackService'
@@ -30,6 +31,7 @@ import type {
 import type {
   UnifiedEventCreate,
   UnifiedEventDateTimeUpdate,
+  UnifiedEventUpdate,
   UnifiedEventQuery,
   LocalCalendarCreate,
   LocalCalendarUpdate
@@ -97,7 +99,9 @@ sharedSkills.setMyMemberIdResolver(() =>
 )
 const caldavClient = new CalDAVClient()
 const holidayService = new HolidayService()
-const unifiedCalendar = new UnifiedCalendarService(caldavClient, holidayService)
+// CalDAV PUT 은 두레이가 막아(200/no-op) 일정 생성/수정은 네이티브 REST 로 처리 → DoorayCalendarApi 주입.
+const doorayCalendarApi = new DoorayCalendarApi(doorayClient)
+const unifiedCalendar = new UnifiedCalendarService(caldavClient, holidayService, doorayCalendarApi)
 // 시작 시 공휴일 백그라운드 refresh (캐시 7일 TTL 안이면 skip)
 holidayService.getHolidays().catch((e) => console.error('[main] 공휴일 refresh 실패:', e))
 const ctagPoller = new CTagPoller(unifiedCalendar)
@@ -894,6 +898,9 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.CALENDAR_UPDATE_EVENT_DATETIME, (_, input: UnifiedEventDateTimeUpdate) =>
     unifiedCalendar.updateEventDateTime(input)
+  )
+  ipcMain.handle(IPC_CHANNELS.CALENDAR_UPDATE_EVENT, (_, input: UnifiedEventUpdate) =>
+    unifiedCalendar.updateEvent(input)
   )
   ipcMain.handle(
     IPC_CHANNELS.CALENDAR_DELETE_EVENT,

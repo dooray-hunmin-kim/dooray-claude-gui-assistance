@@ -1,7 +1,7 @@
 import { createDAVClient } from 'tsdav'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
-import { parseICal, buildICal, patchDateTimeInIcs } from './ical'
+import { parseICal, buildICal } from './ical'
 
 export interface SyncProgress {
   calendarUrl: string
@@ -75,6 +75,7 @@ function basicAuthHeader(): string {
   return 'Basic ' + Buffer.from(`${creds.username}:${creds.password}`, 'utf-8').toString('base64')
 }
 
+
 function fmtCalDavTime(iso: string): string {
   const d = new Date(iso)
   return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`
@@ -93,21 +94,28 @@ function parseMultiStatus(xml: string): MultiStatusEntry[] {
   for (const block of blocks) {
     const hrefMatch = block.match(/<(?:[a-z0-9]+:)?href[\s>]?([^<]*?)<\/(?:[a-z0-9]+:)?href>/i)
     const etagMatch = block.match(/<(?:[a-z0-9]+:)?getetag[\s>]?([^<]*?)<\/(?:[a-z0-9]+:)?getetag>/i)
-    const dataMatch = block.match(/<(?:[a-z0-9]+:)?calendar-data[\s>]([\s\S]*?)<\/(?:[a-z0-9]+:)?calendar-data>/i)
+    // 여는 태그의 속성(xmlns 등)을 [^>]*> 로 모두 소비해야 ICS 본문에 `xmlns='...'>` 가 안 섞임.
+    // (이전 [\s>] 는 속성 있는 <calendar-data xmlns='...'> 에서 속성+'>' 를 본문으로 잘못 캡쳐 → PUT 시 500)
+    const dataMatch = block.match(/<(?:[a-z0-9]+:)?calendar-data\b[^>]*>([\s\S]*?)<\/(?:[a-z0-9]+:)?calendar-data>/i)
     let data: string | undefined
     if (dataMatch) {
       data = dataMatch[1]
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
-        .replace(/&amp;/g, '&')
         .replace(/&quot;/g, '"')
         .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
         .trim()
     }
     if (hrefMatch) {
+      // etag 의 따옴표가 XML 엔티티(&quot;)로 올 수 있어 먼저 디코드 후 양끝 따옴표 제거.
+      let etag: string | undefined
+      if (etagMatch) {
+        etag = etagMatch[1].replace(/&quot;/gi, '"').replace(/&#34;/g, '"').trim().replace(/^["']|["']$/g, '').trim()
+      }
       out.push({
         href: hrefMatch[1].trim(),
-        etag: etagMatch ? etagMatch[1].replace(/^["']|["']$/g, '').trim() : undefined,
+        etag,
         calendarData: data
       })
     }
@@ -364,56 +372,31 @@ export class CalDAVClient {
   }
 
   async createEvent(input: CalDAVEventCreate): Promise<void> {
-    const c = await this.getClient()
     const allCalendars = await this.getRawCalendars()
     const cal = allCalendars.find((x) => x.url === input.calendarUrl)
     if (!cal) throw new Error('대상 캘린더를 찾을 수 없습니다.')
     const uid = randomUid()
     const ical = buildICal({ uid, ...input })
-    await c.createCalendarObject({
-      calendar: cal,
-      filename: `${uid}.ics`,
-      iCalString: ical
-    })
-  }
-
-  /**
-   * 일정의 DTSTART/DTEND 만 갱신 — 막대 드래그(이동/리사이즈)용.
-   * 기존 ICS 의 ATTENDEE/RRULE/ALARM 등을 보존하기 위해 라인 단위로 교체.
-   * 두레이 CalDAV 에 PUT + If-Match (etag) 로 충돌 방지.
-   * @returns 갱신된 etag (서버가 ETag 헤더로 반환). 없으면 undefined.
-   */
-  async updateEventDateTime(input: {
-    href: string
-    etag?: string
-    existingIcs: string
-    start: string
-    end: string
-    allDay: boolean
-  }): Promise<{ etag?: string }> {
-    const newIcs = patchDateTimeInIcs(input.existingIcs, {
-      start: input.start,
-      end: input.end,
-      allDay: input.allDay
-    })
-    const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href
+    // tsdav 의 createCalendarObject 는 두레이 CalDAV 응답 파싱에서 `fetch failed` (issue #24) 로 깨짐.
+    // listEvents/update/delete 가 모두 직접 fetch 로 동작하므로 createEvent 도 동일하게 PUT 로 통일.
+    const base = cal.url.endsWith('/') ? cal.url : `${cal.url}/`
+    const objectUrl = `${base}${uid}.ics`
     const auth = basicAuthHeader()
-    const resp = await fetch(absUrl, {
+    const resp = await fetch(objectUrl, {
       method: 'PUT',
       headers: {
         Authorization: auth,
         'Content-Type': 'text/calendar; charset=utf-8',
-        ...(input.etag ? { 'If-Match': input.etag } : {})
+        // 신규 생성이므로 같은 UID 의 기존 객체가 없어야 함 (서버가 지원하면 충돌 방지)
+        'If-None-Match': '*'
       },
-      body: newIcs
+      body: ical
     })
     if (!resp.ok) {
       const body = await resp.text().catch(() => '')
-      throw new Error(`CalDAV PUT 실패: ${resp.status} ${body.slice(0, 200)}`)
+      throw new Error(`CalDAV 일정 생성 실패: ${resp.status} ${body.slice(0, 200)}`)
     }
-    const newEtag = resp.headers.get('etag') ?? undefined
-    console.log('[CalDAV PUT]', absUrl, 'status=', resp.status, 'newEtag=', newEtag)
-    return { etag: newEtag?.replace(/^["']|["']$/g, '') }
+    console.log('[CalDAV PUT createEvent]', objectUrl, 'status=', resp.status)
   }
 
   async deleteEvent(url: string, etag?: string): Promise<void> {
@@ -434,6 +417,7 @@ export class CalDAVClient {
     }
     console.log('[CalDAV DELETE]', absUrl, 'status=', resp.status)
   }
+
 
   // ─────────────────────────────────────────────────────────────
   // v1.5 Sync — ICS 객체를 디스크에 영구 저장 (CalendarObjectsStore)
@@ -602,6 +586,9 @@ export class CalDAVClient {
       if (!serverMap.has(href)) toDelete.push(href)
     }
 
+    // 진단: 서버 href 수 vs 캐시 href 수 — 불일치가 sync 문제의 1차 단서
+    console.log(`[CalDAV incrementalSyncCalendar] ${calendarUrl.slice(-50)} serverHrefs=${serverMap.size} cachedHrefs=${Object.keys(cached).length} toFetch=${toFetch.length} toDelete=${toDelete.length}`)
+
     // 대량 삭제 가드 — time-range 밖 옛 캐시가 다 삭제로 분류되는 케이스 보호
     if (toDelete.length > 1000) {
       console.warn(`[CalDAV incrementalSync] ${calendarUrl} 삭제 대상 ${toDelete.length}건 → 옛 캐시 흔적으로 판단, 중단`)
@@ -640,10 +627,23 @@ export class CalDAVClient {
     return { added, updated, deleted: toDelete.length }
   }
 
-  /** 모든 캘린더 incremental sync. skipHrefs — 최근 삭제 grace 동안 무시 */
+  /**
+   * 모든 캘린더 incremental sync. skipHrefs — 최근 삭제 grace 동안 무시.
+   *
+   * 호출 시마다 rawCalendarsCache 를 무효화해 tsdav 에 새 PROPFIND 를 강제함.
+   * 이유: 사용자가 두레이에서 새 캘린더를 구독/추가한 경우, 5분 캐시가 남아있으면
+   * 새 캘린더가 sync 대상에 포함되지 않아 일정이 영원히 안 보이는 증상이 생김.
+   * incremental sync 는 이미 180초 간격이므로 매 tick 마다 캘린더 목록도 새로 받는 게 안전.
+   */
   async incrementalSyncAll(skipHrefs?: Set<string>): Promise<{ added: number; updated: number; deleted: number; anyChange: boolean }> {
     if (!CalDAVCredentialStore.has()) return { added: 0, updated: 0, deleted: 0, anyChange: false }
+
+    // 캐시 무효화 — 새로 추가된 공유/구독 캘린더를 매 sync 때 반영
+    this.rawCalendarsCache = null
+
     const cals = await this.getRawCalendars()
+    console.log(`[CalDAV incrementalSyncAll] 시작 — 캘린더 ${cals.length}개`)
+
     // 캘린더 메타 갱신 (sync 안 했어도 캘린더 목록은 항상 최신 유지)
     for (const cal of cals) {
       const dn = (cal as Record<string, unknown>).displayName
@@ -654,9 +654,19 @@ export class CalDAVClient {
       })
     }
     const results = await Promise.all(cals.map(async (cal) => {
-      try { return await this.incrementalSyncCalendar(cal.url, skipHrefs) }
-      catch (e) {
-        console.error('[CalDAV incrementalSync] 실패:', cal.url, e)
+      const dn = (cal as Record<string, unknown>).displayName
+      const calName = extractDisplayName(dn, cal.url)
+      try {
+        const diff = await this.incrementalSyncCalendar(cal.url, skipHrefs)
+        // 변화가 있을 때만 로그 — 조용한 no-change tick 은 spam 방지
+        if (diff.added > 0 || diff.updated > 0 || diff.deleted > 0) {
+          console.log(`[CalDAV incrementalSync] "${calName}" added=${diff.added} updated=${diff.updated} deleted=${diff.deleted}`)
+        } else {
+          console.log(`[CalDAV incrementalSync] "${calName}" — 변경 없음 (서버 href 수: 캐시와 동일)`)
+        }
+        return diff
+      } catch (e) {
+        console.error(`[CalDAV incrementalSync] "${calName}" 실패:`, e)
         return { added: 0, updated: 0, deleted: 0 }
       }
     }))
@@ -665,6 +675,7 @@ export class CalDAVClient {
       updated: acc.updated + r.updated,
       deleted: acc.deleted + r.deleted
     }), { added: 0, updated: 0, deleted: 0 })
+    console.log(`[CalDAV incrementalSyncAll] 완료 — 총 added=${totals.added} updated=${totals.updated} deleted=${totals.deleted}`)
     return { ...totals, anyChange: totals.added + totals.updated + totals.deleted > 0 }
   }
 }

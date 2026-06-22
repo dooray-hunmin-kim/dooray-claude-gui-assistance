@@ -1,5 +1,160 @@
 import { describe, it, expect } from 'vitest'
-import { parseICal, buildICal, bundleICal, patchDateTimeInIcs } from './ical'
+import { parseICal, buildICal, bundleICal, patchDateTimeInIcs, patchEventFields, stripIcsPrefix } from './ical'
+
+describe('stripIcsPrefix — BEGIN:VCALENDAR 앞 XML 쓰레기 제거', () => {
+  it("xmlns='...'> 잔재를 잘라낸다", () => {
+    const corrupt = "xmlns='urn:ietf:params:xml:ns:caldav'>BEGIN:VCALENDAR\r\nEND:VCALENDAR"
+    expect(stripIcsPrefix(corrupt)).toBe('BEGIN:VCALENDAR\r\nEND:VCALENDAR')
+  })
+  it('정상 ICS 는 그대로 둔다', () => {
+    const ok = 'BEGIN:VCALENDAR\r\nEND:VCALENDAR'
+    expect(stripIcsPrefix(ok)).toBe(ok)
+  })
+
+  it('VTIMEZONE 의 DTSTART 는 건드리지 않고 VEVENT 의 DTSTART/SUMMARY 만 교체 (두레이 회귀)', () => {
+    const withTz = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'BEGIN:VTIMEZONE',
+      'TZID:Asia/Seoul',
+      'BEGIN:STANDARD',
+      'DTSTART:19700101T000000',  // VTIMEZONE 규칙용 — 절대 안 바뀌어야 함
+      'TZOFFSETFROM:+0900',
+      'TZOFFSETTO:+0900',
+      'END:STANDARD',
+      'END:VTIMEZONE',
+      'BEGIN:VEVENT',
+      'UID:e@dooray.com',
+      'DTSTART;TZID=Asia/Seoul:20260619T103000',
+      'DTEND;TZID=Asia/Seoul:20260619T113000',
+      'SUMMARY:OLD',
+      'X-DOORAY-CALENDAR-ID:c1',
+      'END:VEVENT',
+      'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(withTz, {
+      summary: 'NEW', start: '2026-06-19T01:30:00Z', end: '2026-06-19T02:30:00Z', allDay: false
+    })
+    // VTIMEZONE 규칙 DTSTART 보존
+    expect(out).toContain('DTSTART:19700101T000000')
+    // VEVENT DTSTART 는 UTC 로 교체
+    expect(out).toContain('DTSTART:20260619T013000Z')
+    expect(out).not.toContain('DTSTART;TZID=Asia/Seoul:20260619T103000')
+    expect(out).toContain('SUMMARY:NEW')
+    expect(out).toContain('X-DOORAY-CALENDAR-ID:c1')
+    // DTSTART 가 정확히 2개 (VTIMEZONE 1 + VEVENT 1)
+    expect(out.match(/^DTSTART/gm)?.length).toBe(2)
+  })
+
+  it('SEQUENCE 를 기존+1 로 올리고 LAST-MODIFIED 를 갱신한다 (두레이 no-op 방지)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:e@dooray.com',
+      'DTSTART:20260619T013000Z', 'DTEND:20260619T023000Z', 'SUMMARY:OLD', 'SEQUENCE:3',
+      'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(ics, { summary: 'NEW', start: '2026-06-19T01:30:00Z', end: '2026-06-19T02:30:00Z', allDay: false })
+    expect(out).toContain('SEQUENCE:4')
+    expect(out.match(/^SEQUENCE:/gm)?.length).toBe(1)
+    expect(out).toMatch(/^LAST-MODIFIED:\d{8}T\d{6}Z/m)
+  })
+
+  it('VCALENDAR METHOD:PUBLISH 를 제거한다 (RFC 4791 — CalDAV PUT 무시 원인)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:PUBLISH', 'CALSCALE:GREGORIAN',
+      'BEGIN:VEVENT', 'UID:e', 'DTSTART:20260619T013000Z', 'DTEND:20260619T023000Z',
+      'SUMMARY:OLD', 'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(ics, { summary: 'NEW', start: '2026-06-19T01:30:00Z', end: '2026-06-19T02:30:00Z', allDay: false })
+    expect(out).not.toContain('METHOD:PUBLISH')
+    expect(out).toContain('SUMMARY:NEW')
+    expect(out).toContain('CALSCALE:GREGORIAN')
+  })
+
+  it('SEQUENCE 가 없으면 1 로 추가한다', () => {
+    const ics = [
+      'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:e', 'DTSTART:20260619T013000Z',
+      'DTEND:20260619T023000Z', 'SUMMARY:OLD', 'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(ics, { summary: 'X', start: '2026-06-19T01:30:00Z', end: '2026-06-19T02:30:00Z', allDay: false })
+    expect(out).toContain('SEQUENCE:1')
+  })
+
+  it('patchDateTimeInIcs(드래그) 도 VTIMEZONE DTSTART 를 건드리지 않는다', () => {
+    const withTz = [
+      'BEGIN:VCALENDAR', 'BEGIN:VTIMEZONE', 'DTSTART:19700101T000000', 'END:VTIMEZONE',
+      'BEGIN:VEVENT', 'UID:e', 'DTSTART;TZID=Asia/Seoul:20260619T103000',
+      'DTEND;TZID=Asia/Seoul:20260619T113000', 'SUMMARY:S', 'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchDateTimeInIcs(withTz, { start: '2026-06-20T01:30:00Z', end: '2026-06-20T02:30:00Z', allDay: false })
+    expect(out).toContain('DTSTART:19700101T000000') // VTIMEZONE 보존
+    expect(out).toContain('DTSTART:20260620T013000Z') // VEVENT 교체
+  })
+
+  it('patchEventFields 가 손상된 캐시(xmlns 접두)도 깨끗하게 PUT 본문 생성', () => {
+    const corrupt = "xmlns='urn:ietf:params:xml:ns:caldav'>" + [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT', 'UID:u@dooray.com',
+      'DTSTART;VALUE=DATE:20260619', 'DTEND;VALUE=DATE:20260620', 'SUMMARY:OLD',
+      'X-DOORAY-CALENDAR-ID:c1', 'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(corrupt, { summary: 'NEW', start: '2026-06-19T00:00:00', end: '2026-06-19T00:00:00', allDay: true })
+    expect(out.startsWith('BEGIN:VCALENDAR')).toBe(true)
+    expect(out).not.toContain('xmlns=')
+    expect(out).toContain('SUMMARY:NEW')
+    expect(out).toContain('X-DOORAY-CALENDAR-ID:c1')
+  })
+})
+
+describe('patchEventFields — 원본 보존 + VTIMEZONE 제거', () => {
+  const original = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Seoul',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    'UID:4358@dooray.com',
+    'CREATED:20260101T000000Z',
+    'DTSTAMP:20260101T000000Z',
+    'DTSTART;TZID=Asia/Seoul:20260619T153000',
+    'DTEND;TZID=Asia/Seoul:20260619T163000',
+    'SUMMARY:TEST',
+    'X-DOORAY-CALENDAR-ID:cal-xyz',
+    'BEGIN:VALARM',
+    'TRIGGER:-PT15M',
+    'DESCRIPTION:알림',
+    'END:VALARM',
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n')
+
+  it('SUMMARY/DTSTART 만 in-place 교체하고 X-DOORAY/VTIMEZONE/VALARM 은 보존', () => {
+    const out = patchEventFields(original, {
+      summary: 'TEST232', start: '2026-06-19T06:30:00Z', end: '2026-06-19T07:30:00Z', allDay: false
+    })
+    expect(out).toContain('SUMMARY:TEST232')
+    expect(out).toContain('X-DOORAY-CALENDAR-ID:cal-xyz')
+    expect(out).toContain('UID:4358@dooray.com')
+    // 구조 보존 — 드래그와 동일하게 원본을 손대지 않음
+    expect(out).toContain('BEGIN:VTIMEZONE')
+    // 새 DTSTART 는 UTC 로 교체
+    expect(out).toContain('DTSTART:20260619T063000Z')
+    expect(out).not.toContain('DTSTART;TZID=Asia/Seoul')
+    // VALARM 의 DESCRIPTION 은 절대 건드리지 않음 (top-level DESCRIPTION 없음)
+    expect(out).toContain('BEGIN:VALARM')
+    expect(out).toContain('DESCRIPTION:알림')
+    expect(out.match(/SUMMARY:/g)?.length).toBe(1)
+  })
+
+  it('top-level DESCRIPTION 은 교체하되 VALARM DESCRIPTION 은 보존', () => {
+    const withDesc = original.replace('SUMMARY:TEST', 'SUMMARY:TEST\r\nDESCRIPTION:원본설명')
+    const out = patchEventFields(withDesc, {
+      summary: 'S', description: '새설명', start: '2026-06-19T06:30:00Z', end: '2026-06-19T07:30:00Z', allDay: false
+    })
+    expect(out).toContain('DESCRIPTION:새설명')
+    expect(out).not.toContain('DESCRIPTION:원본설명')
+    expect(out).toContain('DESCRIPTION:알림') // VALARM 것은 유지
+  })
+})
 
 describe('parseICal — 기본 VEVENT', () => {
   it('UID/SUMMARY/DTSTART/DTEND 가 있으면 파싱한다', () => {

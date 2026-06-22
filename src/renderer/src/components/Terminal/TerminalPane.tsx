@@ -371,7 +371,10 @@ function TerminalPane({ sessionId, isActive, initialOutput }: TerminalPaneProps)
     const seenPaths = new Set<string>()
     const cleanup = window.api.terminal.onOutput(({ id, data }) => {
       if (id !== sessionId) return
-      terminal.write(data)
+      // write() 콜백 안에서 scrollToBottom 을 호출해야 새 출력이 표시된 뒤 뷰포트가 이동한다.
+      // Why: terminal.write() 는 비동기(내부 큐잉)이므로 write 직후 scrollToBottom 을 호출하면
+      // 렌더링이 완료되기 전에 호출될 수 있다. 콜백 인자를 활용해 렌더 후 실행되게 한다.
+      terminal.write(data, () => { terminal.scrollToBottom() })
       // path sniff — 같은 path 는 중복 추가 X. 최대 20개 유지 (오래된 것부터 drop).
       IMAGE_PATH_RE.lastIndex = 0
       let m: RegExpExecArray | null
@@ -391,21 +394,51 @@ function TerminalPane({ sessionId, isActive, initialOutput }: TerminalPaneProps)
       }
     })
 
+    // fit() 전후로 스크롤 위치를 보존한다.
+    // Why: fitAddon.fit() 은 내부적으로 terminal.resize(cols, rows) 를 호출하는데,
+    // xterm 의 resize() 는 viewportY 를 재계산하면서 스크롤 위치를 bottom 으로 강제하지 않는다.
+    // 실제로는 buffer 재배치 결과에 따라 뷰포트가 예기치 않게 top 쪽으로 튀는 케이스가 있다.
+    // 사용자가 이미 bottom 에 있었다면 fit 후에도 bottom 을 유지해야 한다.
+    // (스크롤을 직접 올려서 과거 출력을 보던 중이라면 그 위치를 유지한다.)
     const safeResize = (fa: FitAddon): void => {
       try {
+        const term = terminalRef.current
+        // fit() 호출 직전에 "사용자가 bottom 에 있었는가" 확인
+        // viewportY === 0 이고 baseY > 0 이면 스크롤을 올린 상태. viewportY === baseY 이면 bottom.
+        const wasAtBottom = term
+          ? term.buffer.active.viewportY >= term.buffer.active.baseY
+          : true
         fa.fit()
         const dims = fa.proposeDimensions()
         // cols/rows가 양수일 때만 전송 (컨테이너 크기가 0이면 node-pty가 에러)
         if (dims && dims.cols > 0 && dims.rows > 0) {
           window.api.terminal.resize({ id: sessionId, cols: dims.cols, rows: dims.rows })
         }
+        // fit() 이 viewport 를 흔들었을 때 bottom 을 복원.
+        if (wasAtBottom && term) term.scrollToBottom()
       } catch {}
     }
 
-    const resizeObserver = new ResizeObserver(() => safeResize(fitAddon))
+    // ResizeObserver 를 디바운스해서 연속된 레이아웃 변경(이미지 사이드바 토글 등)에
+    // fit() 이 여러 번 중복 호출되지 않도록 한다.
+    // Why: 이미지 사이드바 show/hide 때 padding 변경 → containerRef 크기 변경 → ResizeObserver
+    // 가 수십 ms 안에 여러 번 발화할 수 있다. 매 발화마다 fit() 을 하면 그때마다 viewport 가
+    // 흔들리고 scrollToBottom 보정도 경쟁 상태에 빠진다. 디바운스로 마지막 한 번만 처리.
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
+    const debouncedSafeResize = (): void => {
+      if (resizeTimer !== null) clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(() => { resizeTimer = null; safeResize(fitAddon) }, 40)
+    }
+
+    const resizeObserver = new ResizeObserver(() => debouncedSafeResize())
     resizeObserver.observe(containerRef.current)
 
-    return () => { cleanup(); resizeObserver.disconnect(); terminal.dispose() }
+    return () => {
+      cleanup()
+      resizeObserver.disconnect()
+      if (resizeTimer !== null) clearTimeout(resizeTimer)
+      terminal.dispose()
+    }
   }, [sessionId])
 
   useEffect(() => {
@@ -414,15 +447,23 @@ function TerminalPane({ sessionId, isActive, initialOutput }: TerminalPaneProps)
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const fa = fitAddonRef.current
+          const term = terminalRef.current
           if (!fa) return
           try {
+            // 탭 전환 시 fit 후에도 bottom 을 유지한다.
+            // Why: isActive=true 로 바뀌면서 컨테이너가 visible 해지고 fitAddon 이 새 크기로
+            // resize() 를 호출하는데, 이때도 viewport 가 top 으로 튈 수 있다.
+            const wasAtBottom = term
+              ? term.buffer.active.viewportY >= term.buffer.active.baseY
+              : true
             fa.fit()
             const dims = fa.proposeDimensions()
             if (dims && dims.cols > 0 && dims.rows > 0) {
               window.api.terminal.resize({ id: sessionId, cols: dims.cols, rows: dims.rows })
             }
+            if (wasAtBottom && term) term.scrollToBottom()
           } catch {}
-          terminalRef.current?.focus()
+          term?.focus()
         })
       })
     }

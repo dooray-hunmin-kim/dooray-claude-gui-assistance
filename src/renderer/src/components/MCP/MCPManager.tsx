@@ -256,7 +256,7 @@ function MCPManager(): JSX.Element {
 
   const handleDeleteFromWiki = async (item: WikiMcpEntry): Promise<void> => {
     if (!activeWikiId) return
-    const ok = window.confirm(`위키 저장소에서 "${item.name}" 을(를) 삭제할까요?`)
+    const ok = window.confirm(`위키 저장소에서 "${item.name}" 을(를) 삭제할까요?\n위키 페이지가 완전히 삭제되며 복구할 수 없습니다.`)
     if (!ok) return
     try {
       await window.api.dooray.wiki.storageSoftDelete(activeWikiId, item.pageId)
@@ -330,7 +330,7 @@ function MCPManager(): JSX.Element {
   const handleBulkDeleteFromWiki = async (): Promise<void> => {
     if (selected.size === 0 || !activeWikiId) return
     const targets = wikiItems.filter((it) => selected.has(it.pageId))
-    if (!window.confirm(`선택한 ${targets.length}개를 위키에서 삭제할까요?`)) return
+    if (!window.confirm(`선택한 ${targets.length}개를 위키에서 삭제할까요?\n위키 페이지가 완전히 삭제되며 복구할 수 없습니다.`)) return
     let okCount = 0
     let failCount = 0
     for (const item of targets) {

@@ -569,10 +569,12 @@ export class TaskService {
 
   /** 프로젝트 태스크 템플릿 상세 (제목/본문) */
   async getProjectTemplate(projectId: string, templateId: string): Promise<{ id: string; name: string; subject: string; body: string } | null> {
+    // interpolation=true: 템플릿 본문의 매크로(${year} 등)를 실제 값으로 치환해서 받음.
+    // 미적용 시 본문에 원시 매크로가 그대로 남아 "템플릿이 제대로 적용 안 됨" 으로 보인다.
     const endpoints = [
-      `/project/v1/projects/${projectId}/templates/${templateId}`,
-      `/project/v1/projects/${projectId}/post-templates/${templateId}`,
-      `/project/v1/projects/${projectId}/posts/templates/${templateId}`
+      `/project/v1/projects/${projectId}/templates/${templateId}?interpolation=true`,
+      `/project/v1/projects/${projectId}/post-templates/${templateId}?interpolation=true`,
+      `/project/v1/projects/${projectId}/posts/templates/${templateId}?interpolation=true`
     ]
     for (const path of endpoints) {
       try {
