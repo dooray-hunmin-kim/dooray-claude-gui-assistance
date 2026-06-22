@@ -82,6 +82,7 @@ describe('HarnessService', () => {
       normalizeHarness: vi.fn(),
       estimateLevel: vi.fn(),
       explainHarness: vi.fn(),
+      getModelConfig: vi.fn(() => ({})),
     }
   })
 
@@ -161,6 +162,28 @@ describe('HarnessService', () => {
 
       // force=true 로 두 번째 호출 (캐시 무시 → AI 재호출)
       await service.normalize(bundlePath, true)
+      expect(vi.mocked(mockAI.normalizeHarness)).toHaveBeenCalledTimes(2)
+    })
+
+    it('정규화 모델이 바뀌면(예: AI 버전 업글) 캐시를 무시하고 재정규화한다', async () => {
+      const bundlePath = createMinimalBundle('renorm-on-model-change')
+      vi.mocked(mockAI.getModelConfig).mockReturnValue({ harnessNormalize: 'sonnet' })
+      service = new HarnessService(userDataPath, mockAI)
+      await service.scan(bundlePath)
+      vi.mocked(mockAI.normalizeHarness).mockImplementation(async (skeleton) =>
+        makeModel(bundlePath, skeleton.meta?.bundleHash || 'mock')
+      )
+
+      await service.normalize(bundlePath)
+      expect(vi.mocked(mockAI.normalizeHarness)).toHaveBeenCalledTimes(1)
+
+      // 같은 모델 → 캐시 hit (재호출 없음)
+      await service.normalize(bundlePath)
+      expect(vi.mocked(mockAI.normalizeHarness)).toHaveBeenCalledTimes(1)
+
+      // 모델 변경(sonnet → opus) → 캐시 무효화 후 재정규화
+      vi.mocked(mockAI.getModelConfig).mockReturnValue({ harnessNormalize: 'opus' })
+      await service.normalize(bundlePath)
       expect(vi.mocked(mockAI.normalizeHarness)).toHaveBeenCalledTimes(2)
     })
 

@@ -88,6 +88,12 @@ export interface HarnessMeta {
    * - 'task'         : 단일 태스크 정의 파일
    */
   kind: 'bundle' | 'overlay' | 'partial-skill' | 'task'
+  /**
+   * 이 결과를 생성한 AI 정규화 모델명(haiku/sonnet/opus/fable 등).
+   * 캐시된 모델과 현재 설정 모델이 다르면(AI 버전 업글·모델 변경 시) 재정규화를 트리거한다.
+   * 파일/스키마 변경(bundleHash·schemaVersion)으로는 못 잡는 "모델만 바뀐" 케이스 대응.
+   */
+  normalizedBy?: string
 }
 
 // ─────────────────────────────────────────────

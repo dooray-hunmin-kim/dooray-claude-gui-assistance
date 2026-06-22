@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Workflow, Plus, History, Clock, Download, Stethoscope, GitCompare, Search, Package, ArrowLeft } from 'lucide-react'
+import { Workflow, Plus, History, Clock, Download, Stethoscope, GitCompare, Search, Package, ArrowLeft, RefreshCw } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { HarnessModel, CachedHarnessEntry, DiscoveredHarness } from '@shared/types/harness'
 import Button from '@/components/common/ds/Button'
@@ -62,6 +62,9 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
   const [discovered, setDiscovered] = useState<DiscoveredHarness[] | null>(null)
   // 정규화(AI) 진행 중인 경로 — 발견/캐시 항목을 열 때 로딩 오버레이 표시용.
   const [opening, setOpening] = useState<string | null>(null)
+  // 강제 재정규화 진행/에러 — 헤더 버튼용.
+  const [renormalizing, setRenormalizing] = useState(false)
+  const [renormError, setRenormError] = useState<string | null>(null)
 
   // 랜딩 진입 시 최근 캐시 + 자동 발견을 함께 로드한다(발견은 버튼 없이 자동).
   const loadLanding = useCallback(async () => {
@@ -125,6 +128,22 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
     // termTranslation 은 현재 미구현 — 상태만 보유, 후속 P3 에서 활성화 예정.
     setWizardOpen(false)
   }, [])
+
+  // 강제 재정규화 — AI 모델 변경(예: fable)·번들 외 사정으로 새 정규화가 필요할 때.
+  // force=true 로 캐시를 무시하고 현재 모델로 재실행한다.
+  const handleRenormalize = useCallback(async () => {
+    if (!model) return
+    setRenormalizing(true)
+    setRenormError(null)
+    try {
+      const fresh = await window.api.harness.normalize({ path: model.meta.source, force: true })
+      setModel(fresh)
+    } catch (e) {
+      setRenormError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRenormalizing(false)
+    }
+  }, [model])
 
   const handleReset = useCallback(() => {
     setModel(null)
@@ -289,6 +308,16 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
             Export
           </Button>
           <Button
+            variant="ghost"
+            size="xs"
+            leftIcon={<RefreshCw size={11} />}
+            onClick={() => void handleRenormalize()}
+            disabled={renormalizing}
+            title="현재 AI 모델로 다시 정규화 (모델 변경·번들 갱신 반영)"
+          >
+            {renormalizing ? '재정규화 중…' : '재정규화'}
+          </Button>
+          <Button
             variant="secondary"
             size="xs"
             leftIcon={<Plus size={11} />}
@@ -298,6 +327,11 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
           </Button>
         </div>
       </div>
+      {renormError && (
+        <div className="px-4 py-1.5 text-xs text-[color:var(--c-red-fg)] bg-[color:var(--c-red-bg)] border-b border-[color:var(--bg-border)] flex-shrink-0">
+          재정규화 실패: {renormError}
+        </div>
+      )}
 
       {/* 탭 바 */}
       <div className="flex items-center px-4 py-2 border-b border-[color:var(--bg-border)] bg-[color:var(--bg-surface)] flex-shrink-0">

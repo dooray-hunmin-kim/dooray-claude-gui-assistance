@@ -78,7 +78,16 @@ export interface IAIServiceForHarness extends IAIServiceForNormalizer {
     topic: string,
     requestId?: string
   ): Promise<string>
+
+  /**
+   * 현재 기능별 모델 설정을 반환한다.
+   * 정규화에 쓰인 모델(harnessNormalize)을 캐시 staleness 판정에 사용한다.
+   */
+  getModelConfig(): { harnessNormalize?: string }
 }
+
+/** harnessNormalize 미설정 시 기본 모델 — AIService.normalizeHarness 의 기본값과 일치해야 함 */
+const DEFAULT_NORMALIZE_MODEL = 'opus'
 
 // ─────────────────────────────────────────────
 // HarnessService
@@ -185,16 +194,23 @@ export class HarnessService {
     // 1. 정적 스캔 → RawBundle
     const raw = await this.scanner.scan(bundlePath)
 
-    // 2. 캐시 조회
+    // 현재 정규화 모델 — 캐시 staleness 판정에 사용.
+    const expectedModel = this.aiService.getModelConfig().harnessNormalize ?? DEFAULT_NORMALIZE_MODEL
+
+    // 2. 캐시 조회 — 파일(bundleHash)·스키마(schemaVersion)는 getBundle 이 무효화하고,
+    //    여기서 추가로 "정규화 모델이 바뀌었는지"(AI 버전 업글·모델 변경)를 검사한다.
     if (!force) {
       const cached = this.cache.getBundle(raw.bundleHash)
-      if (cached !== null) {
+      if (cached !== null && cached.meta.normalizedBy === expectedModel) {
         return cached
       }
+      // normalizedBy 불일치(또는 미기록 구버전 캐시) → 재정규화로 진행.
     }
 
     // 3. AI 정규화
     const model = await this.normalizer.normalize(raw, requestId)
+    // 어떤 모델로 정규화했는지 기록 — 다음 모델 변경 시 자동 무효화 근거.
+    model.meta.normalizedBy = expectedModel
 
     // 4. 캐시 저장
     this.cache.setBundle(raw.bundleHash, model, {
@@ -352,8 +368,9 @@ export class HarnessService {
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
-      // 숨김/백업 디렉터리 제외 (.claude, .omc, .reined-bmad.bak-... 등)
+      // 숨김 디렉터리(.claude, .omc 등)·백업 디렉터리(*.bak / *.bak-타임스탬프) 제외.
       if (entry.name.startsWith('.')) continue
+      if (/\.bak(\b|[-_.]|$)/i.test(entry.name)) continue
       const bundlePath = path.join(skillsRoot, entry.name)
       try {
         // kind 판정용으로 2단계까지 파일명을 수집한다(전체 scan 은 과도하므로 깊이 2 로 제한).
