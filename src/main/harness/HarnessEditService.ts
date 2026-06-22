@@ -169,13 +169,21 @@ export class HarnessEditService {
     try {
       realTarget = await fs.realpath(absTarget)
     } catch {
-      throw new HarnessPathDeniedError(relPath, `파일 realpath 실패 — 존재하지 않거나 접근 불가: ${absTarget}`)
+      throw new HarnessPathDeniedError(
+        relPath,
+        `파일 realpath 실패 — 존재하지 않거나 접근 불가: ${absTarget}`,
+        '파일에 접근할 수 없습니다.'
+      )
     }
 
     // 경로 이탈 방지: realpath 가 bundleRoot 하위여야 함
     const rel = path.relative(bundleRoot, realTarget)
     if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new HarnessPathDeniedError(relPath, `번들 루트 외부 경로: ${realTarget}`)
+      throw new HarnessPathDeniedError(
+        relPath,
+        `번들 루트 외부 경로: ${realTarget}`,
+        '허용된 번들 폴더 내 파일만 읽을 수 있습니다.'
+      )
     }
 
     const content = await fs.readFile(realTarget, 'utf-8')
@@ -255,17 +263,21 @@ export class HarnessEditService {
     const bundleRoot = await this.verifiedBundleRoot(bundlePath)
     const bundleName = path.basename(bundleRoot)
 
-    // 1. 경로 게이트 — 모든 relPath 검증 (실패 시 apply 진행 안 함)
+    // 1. 경로 게이트 — 모든 relPath 검증 (실패 시 apply 진행 안 함).
+    //    assertWritablePath 가 반환하는 검증된 절대경로(resolved)를 보존한다 —
+    //    이후 STALE 읽기·쓰기·rename 에서 미해소 path.join 재구성을 금지한다 (TOCTOU 방지).
+    const resolvedPaths: Record<string, string> = {}
     for (const relPath of Object.keys(draft.edits)) {
-      await assertWritablePath(bundleRoot, relPath)
+      resolvedPaths[relPath] = await assertWritablePath(bundleRoot, relPath)
     }
 
-    // 2. STALE 대조 — 디스크 현재 sha ↔ baseContent sha
+    // 2. STALE 대조 — 디스크 현재 sha ↔ baseContent sha.
+    //    검증된 resolvedPaths 로 읽는다 (미해소 path.join 금지).
     const diskContents: Record<string, string> = {}
     for (const relPath of Object.keys(draft.edits)) {
-      const absPath = path.join(bundleRoot, relPath)
+      const resolvedTarget = resolvedPaths[relPath]
       try {
-        diskContents[relPath] = await fs.readFile(absPath, 'utf-8')
+        diskContents[relPath] = await fs.readFile(resolvedTarget, 'utf-8')
       } catch {
         diskContents[relPath] = '' // 신규 파일
       }
@@ -284,29 +296,30 @@ export class HarnessEditService {
       throw new HarnessStaleEditError(stalePaths)
     }
 
-    // 3. 백업 — 원본 복사
+    // 3. 백업 — 원본 복사 (resolvedPaths 기반 bundleRoot 를 사용)
     const backupDir = computeBackupDir(this.backupRoot, bundleName)
     await backupFiles(bundleRoot, Object.keys(draft.edits), backupDir)
 
-    // 4. 원자적 쓰기 — temp-write → rename
+    // 4. 원자적 쓰기 — temp-write → rename.
+    //    resolvedPaths[relPath] 를 쓰기 대상으로 사용한다 (미해소 path.join 금지).
     const applied: string[] = []
     const tempFiles: string[] = []
 
     try {
       for (const [relPath, fileEdit] of Object.entries(draft.edits)) {
-        const absTarget = path.join(bundleRoot, relPath)
-        const tempPath = `${absTarget}.tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+        const resolvedTarget = resolvedPaths[relPath]
+        const tempPath = `${resolvedTarget}.tmp_${Date.now()}_${Math.random().toString(36).slice(2)}`
 
         // 부모 디렉터리 생성 (신규 파일의 경우)
-        await fs.mkdir(path.dirname(absTarget), { recursive: true })
+        await fs.mkdir(path.dirname(resolvedTarget), { recursive: true })
 
         // temp 파일 쓰기
         await fs.writeFile(tempPath, fileEdit.draftContent, 'utf-8')
         tempFiles.push(tempPath)
 
         // rename (원자적)
-        await fs.rename(tempPath, absTarget)
-        tempFiles.pop() // rename 성공 — temp 파일은 absTarget 으로 이동됨
+        await fs.rename(tempPath, resolvedTarget)
+        tempFiles.pop() // rename 성공 — temp 파일은 resolvedTarget 으로 이동됨
         applied.push(relPath)
       }
     } catch (writeErr) {
@@ -318,6 +331,22 @@ export class HarnessEditService {
           // 정리 실패 — 조용히 무시
         }
       }
+
+      // P2-1: 부분 적용 자동 롤백 — 이미 rename 된 파일을 백업에서 복원한다.
+      // 이 시점에서 applied[] 에 있는 파일은 이미 디스크에 기록됐으므로 백업으로 되돌린다.
+      if (applied.length > 0) {
+        for (const rolledRelPath of applied) {
+          const backupSrc = path.join(backupDir, rolledRelPath)
+          const rollbackDest = resolvedPaths[rolledRelPath]
+          try {
+            await fs.copyFile(backupSrc, rollbackDest)
+          } catch (rollbackErr) {
+            // 롤백도 실패했다면 경고 로그만 남김 (추가 throw 는 원본 writeErr 을 덮음)
+            console.warn(`[HarnessEditService.apply] 롤백 실패: ${rolledRelPath}`, (rollbackErr as Error).message)
+          }
+        }
+      }
+
       throw writeErr
     }
 
@@ -384,8 +413,18 @@ export class HarnessEditService {
       throw new HarnessBackupPathDeniedError(backupDir)
     }
 
-    // 복원 실행
-    const restored = await restoreFromBackup(bundleRoot, realBackupDir)
+    // 복원 대상 파일 목록 조회 후 각 relPath 쓰기 게이트 통과 강제 (P0-1).
+    // apply 와 동일한 assertWritablePath 검증: 번들 루트 하위·확장자·realpath.
+    const filesToRestore = await collectBackupRelPaths(realBackupDir)
+
+    // 각 복원 대상 파일의 쓰기 경로 게이트 통과 — 실패 시 복원 전체 중단
+    const resolvedRestorePaths: Record<string, string> = {}
+    for (const relPath of filesToRestore) {
+      resolvedRestorePaths[relPath] = await assertWritablePath(bundleRoot, relPath)
+    }
+
+    // 복원 실행 — 검증된 resolvedRestorePaths 사용
+    const restored = await restoreFromBackupWithResolvedPaths(realBackupDir, resolvedRestorePaths)
 
     // 재정규화
     this.harnessService.clearCache(bundlePath)
@@ -393,4 +432,67 @@ export class HarnessEditService {
 
     return { restored, model }
   }
+}
+
+// ─────────────────────────────────────────────
+// 복원 경로 수집 헬퍼 (backup.ts 의 비공개 collectRelPaths 와 동일 로직)
+// ─────────────────────────────────────────────
+
+/**
+ * 백업 디렉터리 아래의 모든 파일 상대경로를 열거한다.
+ * backup.ts 의 collectRelPaths 와 동일 로직 — restore 쓰기 게이트 적용을 위해 미리 수집.
+ *
+ * @param backupDir - 백업 디렉터리 절대경로 (realpath 적용 완료)
+ * @returns 파일 상대경로 배열 (POSIX)
+ */
+async function collectBackupRelPaths(backupDir: string): Promise<string[]> {
+  const result: string[] = []
+
+  async function walk(dir: string): Promise<void> {
+    let entries
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        await walk(abs)
+      } else if (entry.isFile()) {
+        const rel = path.relative(backupDir, abs).split(path.sep).join('/')
+        result.push(rel)
+      }
+    }
+  }
+
+  await walk(backupDir)
+  return result.sort()
+}
+
+/**
+ * 미리 검증된 resolvedPaths 로 백업에서 번들로 파일을 복원한다.
+ * backup.restoreFromBackup 대신 이 함수를 사용해 TOCTOU 를 방지한다.
+ *
+ * @param backupDir - 백업 디렉터리 절대경로 (realpath 적용 완료)
+ * @param resolvedPaths - relPath → 검증된 대상 절대경로 맵
+ * @returns 복원된 relPath 목록
+ */
+async function restoreFromBackupWithResolvedPaths(
+  backupDir: string,
+  resolvedPaths: Record<string, string>
+): Promise<string[]> {
+  const restored: string[] = []
+
+  for (const [relPath, destResolved] of Object.entries(resolvedPaths)) {
+    const srcPath = path.join(backupDir, relPath)
+
+    const destDir = path.dirname(destResolved)
+    await fs.mkdir(destDir, { recursive: true })
+
+    await fs.copyFile(srcPath, destResolved)
+    restored.push(relPath)
+  }
+
+  return restored
 }

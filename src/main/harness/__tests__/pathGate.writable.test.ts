@@ -162,3 +162,71 @@ describe('assertWritablePath', () => {
     expect(result.endsWith('gate.sh')).toBe(true)
   })
 })
+
+// ─────────────────────────────────────────────
+// P1-3: Windows backslash '..' 및 절대경로 거부
+// ─────────────────────────────────────────────
+
+describe('assertWritablePath — Windows backslash / 절대경로 거부 (P1-3)', () => {
+  let base: string
+  let bundleRoot: string
+
+  beforeAll(async () => {
+    base = await fs.mkdtemp(path.join(tmpdir(), 'harness-win-'))
+    const rawBundleRoot = path.join(base, 'bundle')
+    await fs.mkdir(rawBundleRoot, { recursive: true })
+    bundleRoot = await fs.realpath(rawBundleRoot)
+    await fs.mkdir(path.join(bundleRoot, '_agents'), { recursive: true })
+    await fs.writeFile(path.join(bundleRoot, '_agents', 'dev.md'), 'hello')
+  })
+
+  afterAll(async () => {
+    await fs.rm(base, { recursive: true, force: true })
+  })
+
+  it('Windows backslash ".." 거부 (..\\\\..\\\\x.sh)', async () => {
+    // Windows 스타일 backslash 경로로 탈출 시도 — posix normalize 만으로는 놓칠 수 있음
+    await expect(
+      assertWritablePath(bundleRoot, '..\\..\\x.sh')
+    ).rejects.toBeInstanceOf(HarnessPathDeniedError)
+  })
+
+  it('Windows backslash 단일 ".." 거부 (..\\secret.md)', async () => {
+    await expect(
+      assertWritablePath(bundleRoot, '..\\secret.md')
+    ).rejects.toBeInstanceOf(HarnessPathDeniedError)
+  })
+
+  it('POSIX 절대경로 거부 (/etc/passwd)', async () => {
+    await expect(
+      assertWritablePath(bundleRoot, '/etc/passwd')
+    ).rejects.toBeInstanceOf(HarnessPathDeniedError)
+  })
+
+  it('Windows 드라이브 절대경로 거부 (C:\\\\Windows\\\\system32\\\\evil.sh)', async () => {
+    await expect(
+      assertWritablePath(bundleRoot, 'C:\\Windows\\system32\\evil.sh')
+    ).rejects.toBeInstanceOf(HarnessPathDeniedError)
+  })
+
+  it('Windows 드라이브 절대경로 거부 소문자 (c:/evil.sh)', async () => {
+    await expect(
+      assertWritablePath(bundleRoot, 'c:/evil.sh')
+    ).rejects.toBeInstanceOf(HarnessPathDeniedError)
+  })
+
+  it('에러 메시지가 일반화됨 — 절대경로 노출 없음 (P2-4)', async () => {
+    // message 에 절대경로가 포함되지 않아야 한다
+    try {
+      await assertWritablePath(bundleRoot, '/etc/passwd')
+    } catch (err) {
+      const e = err as Error & { internalReason?: string }
+      // message 는 사용자에게 노출되는 안전한 메시지여야 함
+      expect(e.message).not.toContain('/etc')
+      expect(e.message).not.toContain(bundleRoot)
+      // internalReason 에는 상세 정보 포함 (로그용)
+      // HarnessPathDeniedError 의 internalReason 확인
+      expect(e.internalReason).toBeDefined()
+    }
+  })
+})

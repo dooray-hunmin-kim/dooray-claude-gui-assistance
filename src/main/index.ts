@@ -1642,8 +1642,12 @@ ${data}`,
    * pickDialog 시 폴더 선택 다이얼로그를 열어 경로를 받는다.
    */
   ipcMain.handle(IPC_CHANNELS.HARNESS_SCAN, async (_, args: { path?: string; pickDialog?: boolean }) => {
+    // P1-2: 쓰기 allowlist 등록은 dialog(사용자 명시 선택) 경유 경로만.
+    // args.path 직접 전달 경로는 읽기(scan) 는 허용하나 write-allowlist 에는 올리지 않는다.
+    const fromDialog = Boolean(args?.pickDialog)
     let bundlePath: string | null = args?.path || null
-    if (args?.pickDialog) {
+
+    if (fromDialog) {
       const result = await dialog.showOpenDialog({
         properties: ['openDirectory'],
         title: '번들 폴더 선택'
@@ -1652,9 +1656,12 @@ ${data}`,
       bundlePath = result.filePaths[0]
     }
     if (!bundlePath) return null
+
     const scanResult = await getHarnessService().scan(bundlePath)
-    // 스캔 성공 시 HarnessEditService allowlist 에 번들 등록 (편집 IPC 사용 전제)
-    if (scanResult && bundlePath) {
+
+    // 스캔 성공 + dialog 경유 경로만 write-allowlist 에 등록 (P1-2).
+    // skills 하위 경로는 pathGate 에서 항상 허용하므로 별도 등록 불필요.
+    if (scanResult && fromDialog) {
       try {
         const { realpath: realpathFn } = await import('fs/promises')
         const realBundlePath = await realpathFn(bundlePath).catch(() => bundlePath!)
@@ -1748,7 +1755,9 @@ ${data}`,
       try {
         return await getHarnessEditService().readFile(args.path, args.relPath)
       } catch (err) {
-        console.error('[HARNESS_READ_FILE] 실패:', (err as Error).message)
+        // P2-4: 절대경로/허용루트 상세는 internalReason 으로만. renderer 에는 일반화된 message 만 전달.
+        const e = err as Error & { internalReason?: string }
+        console.error('[HARNESS_READ_FILE] 실패:', e.internalReason ?? e.message)
         throw err
       }
     }
@@ -1767,7 +1776,8 @@ ${data}`,
       try {
         return await getHarnessEditService().diff(args.path, args.draft)
       } catch (err) {
-        console.error('[HARNESS_DIFF_DRAFT] 실패:', (err as Error).message)
+        const e = err as Error & { internalReason?: string }
+        console.error('[HARNESS_DIFF_DRAFT] 실패:', e.internalReason ?? e.message)
         throw err
       }
     }
@@ -1787,7 +1797,8 @@ ${data}`,
       try {
         return await getHarnessEditService().apply(args.path, args.draft)
       } catch (err) {
-        console.error('[HARNESS_APPLY_DRAFT] 실패:', (err as Error).message)
+        const e = err as Error & { internalReason?: string }
+        console.error('[HARNESS_APPLY_DRAFT] 실패:', e.internalReason ?? e.message)
         throw err
       }
     }
@@ -1809,15 +1820,17 @@ ${data}`,
     IPC_CHANNELS.HARNESS_AI_EDIT,
     async (_, args: { path: string; command: string; targetRelPaths: string[]; requestId?: string }) => {
       try {
-        // targetRelPaths 의 파일 내용을 읽어 AIService.proposeEdit 에 전달
+        // targetRelPaths 의 파일 내용을 HarnessEditService.readFile(게이트 경유) 로 읽는다 (P0-2).
+        // 직접 fs.readFile(args.path, relPath) 금지 — 게이트 없는 임의 파일 유출 방지.
+        const editService = getHarnessEditService()
         const targetFiles: { relPath: string; content: string }[] = []
         for (const relPath of args.targetRelPaths) {
-          const absPath = editPath.join(args.path, relPath)
           try {
-            const content = await editFs.readFile(absPath, 'utf-8')
+            const { content } = await editService.readFile(args.path, relPath)
             targetFiles.push({ relPath, content })
           } catch (readErr) {
-            console.warn(`[HARNESS_AI_EDIT] 파일 읽기 실패 (스킵): ${relPath}`, (readErr as Error).message)
+            // HarnessPathDeniedError 는 warn 레벨 — 허용 루트 외 경로는 무음 스킵
+            console.warn(`[HARNESS_AI_EDIT] 파일 읽기 거부/실패 (스킵): ${relPath}`, (readErr as Error).message)
           }
         }
         return await aiService.proposeEdit(args.command, targetFiles, args.requestId)
@@ -1859,7 +1872,8 @@ ${data}`,
       try {
         return await getHarnessEditService().restore(args.path, args.backupDir)
       } catch (err) {
-        console.error('[HARNESS_RESTORE_BACKUP] 실패:', (err as Error).message)
+        const e = err as Error & { internalReason?: string }
+        console.error('[HARNESS_RESTORE_BACKUP] 실패:', e.internalReason ?? e.message)
         throw err
       }
     }

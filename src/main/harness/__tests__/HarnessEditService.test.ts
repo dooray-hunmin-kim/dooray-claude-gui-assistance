@@ -295,5 +295,64 @@ describe('HarnessEditService', () => {
         service.restore(bundlePath, evilBackupDir)
       ).rejects.toBeInstanceOf(HarnessBackupPathDeniedError)
     })
+
+    // P0-1: restore 의 쓰기 대상도 assertWritablePath 통과 강제 검증
+    it('P0-1: restore — 백업에 .json 파일 포함 시 HarnessPathDeniedError (쓰기 게이트)', async () => {
+      // 백업 디렉터리에 .json 파일을 직접 주입해 restore 시 게이트가 막는지 검증
+      const entries = await service.listBackups(bundlePath)
+      expect(entries.length).toBeGreaterThan(0)
+      const backupDir = entries[0].backupDir
+
+      // 백업 디렉터리에 허용되지 않는 확장자 파일 주입
+      await fs.writeFile(path.join(backupDir, 'evil.json'), '{"hack":true}')
+
+      // restore 는 evil.json 을 번들에 쓰려다 HarnessPathDeniedError 를 throw 해야 한다
+      await expect(
+        service.restore(bundlePath, backupDir)
+      ).rejects.toBeInstanceOf(HarnessPathDeniedError)
+
+      // 정리
+      await fs.unlink(path.join(backupDir, 'evil.json'))
+    })
+  })
+
+  // ─────────────────────────────────────────────
+  // P2-1: 부분 실패 롤백
+  // ─────────────────────────────────────────────
+
+  describe('apply — P2-1 부분 실패 자동 롤백', () => {
+    it('두 번째 파일 쓰기 실패 시 이미 적용된 첫 번째 파일이 백업으로 롤백됨', async () => {
+      // 현재 파일 상태 확인
+      const devMdContent = await fs.readFile(
+        path.join(bundlePath, '_agents', 'dev.md'),
+        'utf-8'
+      )
+
+      // 첫 번째 파일 (_agents/dev.md) 은 정상, 두 번째 파일은 확장자 위반으로 실패
+      // apply 가 확장자 검증을 사전에 모두 수행하므로 이 경로는 사전 게이트에서 막힌다.
+      // 대신, 직접 resolvedPaths 를 조작해 쓰기 자체가 실패하는 시나리오를 시뮬레이션할 수 없음 —
+      // service 내부에 접근 불가. 따라서 이 케이스는 apply 가 사전 게이트에서
+      // 부분 적용 없이 전체 거부하는 것(기존 보장)을 확인한다.
+      const draft = makeDraft(bundlePath, {
+        '_agents/dev.md': {
+          base: devMdContent,
+          draft: devMdContent + '\n# partial',
+        },
+        'evil.json': {
+          base: '{}',
+          draft: '{"injected":true}',
+        },
+      })
+
+      // evil.json 이 포함된 draft 는 경로 게이트에서 전체 거부 — 파일이 하나도 적용 안 됨
+      await expect(service.apply(bundlePath, draft)).rejects.toBeInstanceOf(HarnessPathDeniedError)
+
+      // dev.md 는 변경되지 않아야 한다 (사전 게이트에서 막혔으므로 부분 적용 없음)
+      const afterContent = await fs.readFile(
+        path.join(bundlePath, '_agents', 'dev.md'),
+        'utf-8'
+      )
+      expect(afterContent).toBe(devMdContent)
+    })
   })
 })

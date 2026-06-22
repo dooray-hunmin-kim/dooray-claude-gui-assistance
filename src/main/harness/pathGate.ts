@@ -36,13 +36,20 @@ import { homedir } from 'os'
  */
 export class HarnessPathDeniedError extends Error {
   readonly code = 'HARNESS_PATH_DENIED'
+  /**
+   * @param deniedPath - 거부된 원본 경로 (진단 목적, 로그 전용)
+   * @param reason - 거부 사유 상세 (cliLogger/console 로만 출력. renderer 로 노출 금지)
+   * @param userMessage - 사용자에게 보여줄 일반화된 메시지 (기본: 일반 문구)
+   */
   constructor(
-    /** 거부된 원본 경로 */
+    /** 거부된 원본 경로 (진단 목적, 절대경로/허용루트 포함 — 로그 전용) */
     readonly deniedPath: string,
-    /** 거부 사유 (로그 전용, 사용자 노출 최소화) */
-    reason: string
+    /** 거부 사유 상세 (로그 전용, renderer 노출 금지) */
+    readonly internalReason: string,
+    /** 사용자에게 보여줄 일반화된 메시지 */
+    userMessage: string = '파일 접근이 거부됐습니다. 허용된 번들 폴더 내 파일만 편집할 수 있습니다.'
   ) {
-    super(`경로 접근 거부: ${reason}`)
+    super(userMessage)
     this.name = 'HarnessPathDeniedError'
   }
 }
@@ -109,7 +116,10 @@ export async function assertPathAllowed(
     realResolved = await fs.realpath(resolved)
   } catch {
     // realpath 실패 = 경로 존재하지 않음 또는 접근 불가 — 보수적으로 거부
-    throw new HarnessPathDeniedError(inputPath, `realpath 실패 — 경로 존재하지 않거나 접근 불가: ${resolved}`)
+    throw new HarnessPathDeniedError(
+      inputPath,
+      `realpath 실패 — 경로 존재하지 않거나 접근 불가: ${resolved}`
+    )
   }
 
   if (!isUnderAllowedRoot(realResolved, allowedRoots)) {
@@ -172,13 +182,34 @@ export function isWritableExtension(relPath: string): boolean {
  * @throws HarnessPathDeniedError — 검증 실패 시
  */
 export async function assertWritablePath(bundleRoot: string, relPath: string): Promise<string> {
-  // 1. '..' 세그먼트 포함 거부 — 디렉터리 탈출 차단
-  const normalized = nodePath.posix.normalize(relPath)
-  const segments = normalized.split('/')
-  if (segments.some((seg) => seg === '..')) {
+  // 0. 절대경로 명시 거부 — relPath 는 번들 루트 기준 상대경로여야 한다.
+  //    POSIX 절대(/로 시작) 및 Windows 드라이브(C:\, D:/ 등) 모두 거부.
+  if (nodePath.isAbsolute(relPath) || /^[A-Za-z]:/.test(relPath)) {
     throw new HarnessPathDeniedError(
       relPath,
-      `경로에 '..' 세그먼트 포함 — 디렉터리 탈출 시도: ${relPath}`
+      `절대경로는 허용되지 않습니다 (상대경로만 허용): ${relPath}`,
+      '허용된 번들 폴더 내 상대경로만 편집할 수 있습니다.'
+    )
+  }
+
+  // 1. '..' 세그먼트 포함 거부 — 디렉터리 탈출 차단.
+  //    Windows backslash (\) 경로도 처리하기 위해 먼저 슬래시로 정규화.
+  //    posix.normalize 와 win32.normalize 양쪽 모두 적용해 숨겨진 '..' 탐지.
+  const slashNormalized = relPath.replace(/\\/g, '/')
+  const posixNorm = nodePath.posix.normalize(slashNormalized)
+  const win32Norm = nodePath.win32.normalize(relPath)
+
+  const posixSegments = posixNorm.split('/')
+  const win32Segments = win32Norm.split(/[\\/]/)
+
+  if (
+    posixSegments.some((seg) => seg === '..') ||
+    win32Segments.some((seg) => seg === '..')
+  ) {
+    throw new HarnessPathDeniedError(
+      relPath,
+      `경로에 '..' 세그먼트 포함 — 디렉터리 탈출 시도: ${relPath}`,
+      '허용된 번들 폴더 내 파일만 편집할 수 있습니다.'
     )
   }
 
@@ -187,7 +218,8 @@ export async function assertWritablePath(bundleRoot: string, relPath: string): P
     const ext = nodePath.extname(relPath) || '(없음)'
     throw new HarnessPathDeniedError(
       relPath,
-      `허용되지 않은 확장자: ${ext} — 허용: .md/.sh/.txt/VERSION`
+      `허용되지 않은 확장자: ${ext} — 허용: .md/.sh/.txt/VERSION`,
+      `.md/.sh/.txt/VERSION 형식의 파일만 편집할 수 있습니다.`
     )
   }
 
@@ -210,7 +242,8 @@ export async function assertWritablePath(bundleRoot: string, relPath: string): P
     } catch {
       throw new HarnessPathDeniedError(
         relPath,
-        `realpath 실패 — 접근 불가: ${absTarget}`
+        `realpath 실패 — 접근 불가: ${absTarget}`,
+        '파일에 접근할 수 없습니다.'
       )
     }
   } else {
@@ -222,7 +255,8 @@ export async function assertWritablePath(bundleRoot: string, relPath: string): P
     } catch {
       throw new HarnessPathDeniedError(
         relPath,
-        `부모 디렉터리 realpath 실패 — 존재하지 않거나 접근 불가: ${parentDir}`
+        `부모 디렉터리 realpath 실패 — 존재하지 않거나 접근 불가: ${parentDir}`,
+        '대상 디렉터리가 존재하지 않습니다.'
       )
     }
     resolvedTarget = nodePath.join(resolvedParent, nodePath.basename(absTarget))
@@ -232,7 +266,8 @@ export async function assertWritablePath(bundleRoot: string, relPath: string): P
   if (!isUnderAllowedRoot(resolvedTarget, [bundleRoot])) {
     throw new HarnessPathDeniedError(
       relPath,
-      `번들 루트 외부 경로 (심링크 탈출 의심): ${resolvedTarget} (루트: ${bundleRoot})`
+      `번들 루트 외부 경로 (심링크 탈출 의심): ${resolvedTarget} (루트: ${bundleRoot})`,
+      '허용된 번들 폴더 내 파일만 편집할 수 있습니다.'
     )
   }
 

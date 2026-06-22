@@ -114,6 +114,16 @@ export interface DraftFileEdit {
   aiCommand?: string
   /** draft 생성 시각 (ISO 8601) */
   editedAt: string
+  /**
+   * renderer 가 HARNESS_DIFF_DRAFT 응답으로 표시하는 외부 변경 충돌 플래그.
+   *
+   * main 의 STALE 감지 결과를 renderer 가 draft 에 기록해 UI 에서
+   * 적용 버튼 비활성화 등에 사용한다. IPC 전송 후 main 이 독립적으로
+   * 재검증하므로 이 값은 UI 힌트용 — main 은 이 필드를 무시한다.
+   *
+   * 선택적 필드이므로 기존 DraftFileEdit 직렬화에 영향 없음.
+   */
+  stale?: boolean
 }
 
 /**

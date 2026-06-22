@@ -62,9 +62,9 @@
 
 - 도메인: main + preload · 담당: executor (sonnet)
 - 의존: M3, M4
-- [ ] `src/main/index.ts`: `HarnessEditService` 인스턴스화(`getHarnessService` 와 동일 lazy 패턴, userData 주입) + 6개 `ipcMain.handle` 등록
-- [ ] `src/preload/index.ts`: `api.harness.edit.{readFile,diff,apply,aiPropose,listBackups,restore}` contextBridge 노출
-- [ ] AI 편집 진행률은 기존 `AI_PROGRESS`/`useAIProgress` 재사용(requestId)
+- [x] `src/main/index.ts`: `HarnessEditService` 인스턴스화(`getHarnessService` 와 동일 lazy 패턴, userData 주입) + 6개 `ipcMain.handle` 등록
+- [x] `src/preload/index.ts`: `api.harness.edit.{readFile,diff,apply,aiPropose,listBackups,restore}` contextBridge 노출
+- [x] AI 편집 진행률은 기존 `AI_PROGRESS`/`useAIProgress` 재사용(requestId)
 - 산출물: 동작하는 IPC. 테스트: 핸들러 핵심 로직은 HarnessEditService 에 있어 M3 에서 커버. 배선은 수동 스모크
 - 리스크: 핸들러에서 입력 검증 누락 → HarnessEditService 가 게이트하므로 핸들러는 위임만
 
