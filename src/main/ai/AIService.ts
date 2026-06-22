@@ -1504,16 +1504,23 @@ ${useMcp ? `
    * @param taskText - 태스크 평문 또는 두레이 URL/설명
    * @param triage - 번들의 HarnessTriage 구조
    * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @param projectContext - toPromptText(profile) 로 생성한 프로젝트 맥락 문자열 (선택).
+   *   지정 시 userPrompt 에 "## 프로젝트 맥락" 섹션으로 포함되어 레벨 추정 정확도를 높인다.
+   *   미지정(undefined) 시 기존 동작 그대로 — 회귀 없음.
    * @returns { level, answers, rationale }
    */
   async estimateLevel(
     taskText: string,
     triage: HarnessTriage,
-    requestId?: string
+    requestId?: string,
+    projectContext?: string
   ): Promise<Pick<DryRunResult, 'level' | 'answers' | 'rationale'>> {
     const model = this.pickModel('harnessEstimate', 'haiku')
     const systemPrompt = buildEstimateSystemPrompt()
-    const userPrompt = buildEstimateUserPrompt(taskText, triage)
+    const baseUserPrompt = buildEstimateUserPrompt(taskText, triage)
+    const userPrompt = projectContext
+      ? `${baseUserPrompt}\n\n## 프로젝트 맥락\n${projectContext}`
+      : baseUserPrompt
 
     const args = buildArgs(userPrompt, {
       model,

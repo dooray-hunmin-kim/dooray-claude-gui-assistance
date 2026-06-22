@@ -32,12 +32,15 @@ export interface IAIServiceForEstimator {
    * @param taskText - 태스크 설명 평문
    * @param triage - 번들의 HarnessTriage
    * @param requestId - AI_PROGRESS 이벤트 구분 ID (optional)
+   * @param projectContext - toPromptText(profile) 로 생성한 프로젝트 맥락 (optional).
+   *   지정 시 "## 프로젝트 맥락" 섹션을 user prompt 에 포함.
    * @returns { level, answers, rationale }
    */
   estimateLevel(
     taskText: string,
     triage: HarnessTriage,
-    requestId?: string
+    requestId?: string,
+    projectContext?: string
   ): Promise<Pick<DryRunResult, 'level' | 'answers' | 'rationale'>>
 }
 
@@ -74,11 +77,21 @@ export class DryRunEstimator {
    * @param model - 정규화된 HarnessModel (triage 가 채워져 있어야 함)
    * @param taskText - 태스크 설명 평문 또는 두레이 URL
    * @param requestId - AI_PROGRESS 이벤트 구분 ID (optional)
+   * @param projectContext - toPromptText(profile) 로 생성한 프로젝트 맥락 (optional).
+   *   지정 시 AIService.estimateLevel 에 전달되어 레벨 추정 정확도를 높인다.
+   *   캐시 키(taskHash)에는 포함되지 않음 — 맥락 분리는 caller(HarnessService.dryrun)가 담당.
    * @returns DryRunResult
    */
-  async estimate(model: HarnessModel, taskText: string, requestId?: string): Promise<DryRunResult> {
+  async estimate(
+    model: HarnessModel,
+    taskText: string,
+    requestId?: string,
+    projectContext?: string,
+    projectContextSig?: string
+  ): Promise<DryRunResult> {
     // 1. taskHash 캐시 조회
-    const taskHash = computeTaskHash(model.meta.bundleHash, taskText)
+    //    projectContextSig 포함 — 맥락이 다르면 캐시 분리 (동일 번들+태스크라도 별개 결과)
+    const taskHash = computeTaskHash(model.meta.bundleHash, taskText, projectContextSig)
     const cached = this.cache.getTask(taskHash)
     if (cached !== null) {
       return cached
@@ -88,7 +101,8 @@ export class DryRunEstimator {
     const estimate = await this.aiService.estimateLevel(
       taskText,
       model.triage,
-      requestId
+      requestId,
+      projectContext
     )
 
     // 3. levelPath 로 결정론적 경로 계산

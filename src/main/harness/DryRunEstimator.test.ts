@@ -316,12 +316,69 @@ describe('DryRunEstimator', () => {
       const result = await estimator.estimate(model, 'requestId 테스트', 'req-123')
 
       expect(result.level).toBe('L0')
-      // estimateLevel 이 requestId 를 받았는지 확인
+      // estimateLevel 이 requestId + undefined projectContext 를 받았는지 확인
       expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledWith(
         'requestId 테스트',
         model.triage,
-        'req-123'
+        'req-123',
+        undefined
       )
+    })
+  })
+
+  // ── projectContext / projectContextSig 통합 ──────────────────────────────
+  describe('projectContext + projectContextSig', () => {
+    it('projectContext 가 있으면 estimateLevel 에 전달된다', async () => {
+      vi.mocked(mockAI.estimateLevel).mockResolvedValue(makeEstimate('L1'))
+      const model = makeModel()
+      const ctx = '프로젝트 경로: /my/project\npackage.json 감지됨 (my-app)'
+
+      await estimator.estimate(model, 'ctx 전달 테스트', undefined, ctx)
+
+      expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledWith(
+        'ctx 전달 테스트',
+        model.triage,
+        undefined,
+        ctx
+      )
+    })
+
+    it('같은 bundleHash+taskText 라도 projectContextSig 가 다르면 캐시 miss 발생 (AI 재호출)', async () => {
+      vi.mocked(mockAI.estimateLevel).mockResolvedValue(makeEstimate('L1'))
+      const model = makeModel()
+      const taskText = '동일 태스크'
+
+      // 첫 번째 호출 — sig-A
+      await estimator.estimate(model, taskText, undefined, 'ctx-A', 'sig-A')
+      expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledTimes(1)
+
+      // 두 번째 호출 — sig-B (다른 서명 → 캐시 miss → AI 재호출)
+      await estimator.estimate(model, taskText, undefined, 'ctx-B', 'sig-B')
+      expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledTimes(2)
+    })
+
+    it('같은 projectContextSig 이면 캐시 hit (AI 재호출 없음)', async () => {
+      vi.mocked(mockAI.estimateLevel).mockResolvedValue(makeEstimate('L2'))
+      const model = makeModel()
+      const taskText = '캐시 서명 테스트'
+
+      await estimator.estimate(model, taskText, undefined, 'ctx-X', 'sig-X')
+      expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledTimes(1)
+
+      // 같은 sig → 캐시 hit
+      await estimator.estimate(model, taskText, undefined, 'ctx-X', 'sig-X')
+      expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledTimes(1) // 재호출 없음
+    })
+
+    it('projectContext 없는 경우 기존 동작(캐시 hit) 그대로 — 회귀 없음', async () => {
+      vi.mocked(mockAI.estimateLevel).mockResolvedValue(makeEstimate('L0'))
+      const model = makeModel()
+      const taskText = '기존 동작 회귀 테스트'
+
+      await estimator.estimate(model, taskText)
+      await estimator.estimate(model, taskText)
+
+      expect(vi.mocked(mockAI.estimateLevel)).toHaveBeenCalledTimes(1)
     })
   })
 })

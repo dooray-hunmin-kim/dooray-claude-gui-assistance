@@ -1709,19 +1709,33 @@ ${data}`,
 
   /**
    * HARNESS_DRYRUN — 태스크 평문으로 레벨 추정 + 결정론적 경로 계산.
-   * { path: string; taskText: string; requestId?: string }
+   * { path: string; taskText: string; requestId?: string; projectPath?: string }
    *
    * 처리 흐름:
-   * 1. HarnessService.dryrun(path, taskText, requestId) 위임.
-   * 2. taskHash 캐시 hit → 즉시 반환 / miss → Haiku 추정 + levelPath 계산.
-   * 3. 진행률은 기존 AI_PROGRESS 채널 재사용 (requestId 로 구분).
+   * 1. HarnessService.dryrun(path, taskText, requestId, projectPath) 위임.
+   * 2. projectPath 지정 시 — 정적 프로파일 수집(bound) → AI 맥락으로 전달.
+   * 3. taskHash 캐시 hit → 즉시 반환 / miss → Haiku 추정 + levelPath 계산.
+   * 4. 진행률은 기존 AI_PROGRESS 채널 재사용 (requestId 로 구분).
    */
   ipcMain.handle(
     IPC_CHANNELS.HARNESS_DRYRUN,
-    async (_, args: { path: string; taskText: string; requestId?: string }) => {
-      return getHarnessService().dryrun(args.path, args.taskText, args.requestId)
+    async (_, args: { path: string; taskText: string; requestId?: string; projectPath?: string }) => {
+      return getHarnessService().dryrun(args.path, args.taskText, args.requestId, args.projectPath)
     }
   )
+
+  /**
+   * HARNESS_PICK_DIR — 프로젝트 폴더 선택 다이얼로그.
+   * 취소 시 null 반환.
+   * Dry-run 레벨 추정의 projectPath 입력 전용.
+   */
+  ipcMain.handle(IPC_CHANNELS.HARNESS_PICK_DIR, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: '프로젝트 폴더 선택 (레벨 추정 맥락용)'
+    })
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
 
   /**
    * HARNESS_EXPLAIN — 번들 경로 + 토픽을 받아 온디맨드 한국어 설명 반환 (P3, Sonnet).

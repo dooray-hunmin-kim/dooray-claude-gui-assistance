@@ -276,6 +276,12 @@ export const IPC_CHANNELS = {
   HARNESS_NORMALIZE: 'harness:normalize',
   /** 태스크 평문을 받아 레벨 추정 + 경로 계산 DryRunResult 반환 — taskHash 캐시 */
   HARNESS_DRYRUN: 'harness:dryrun',
+  /**
+   * 프로젝트 폴더 선택 다이얼로그를 열어 사용자가 선택한 경로를 반환.
+   * 취소 시 null 반환. Dry-run 레벨 추정의 projectPath 입력에 사용.
+   * dialog.showOpenDialog({ properties: ['openDirectory'] }) 래퍼.
+   */
+  HARNESS_PICK_DIR: 'harness:pick-dir',
   /** 번들 경로 + 토픽을 받아 온디맨드 설명/용어번역 마크다운 반환 (P3, Sonnet) */
   HARNESS_EXPLAIN: 'harness:explain',
   /** 캐시 삭제 — path 지정 시 해당 번들만, 생략 시 전체. 삭제된 항목 수 반환 */

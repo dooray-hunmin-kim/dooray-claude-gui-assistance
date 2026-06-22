@@ -20,6 +20,8 @@ import { BundleScanner } from './BundleScanner'
 import { HarnessNormalizer } from './HarnessNormalizer'
 import { HarnessCache } from './HarnessCache'
 import { DryRunEstimator } from './DryRunEstimator'
+import { gatherProjectProfile } from './projectProfile'
+import { toPromptText, profileSignature } from '../../shared/types/harness-dryrun'
 import type { IAIServiceForNormalizer } from './HarnessNormalizer'
 import type { RawBundleSummary, HarnessModel, DryRunResult, DiscoveredHarness } from '../../shared/types/harness'
 import { detectBundleKind } from './bundleDetect'
@@ -62,7 +64,8 @@ export interface IAIServiceForHarness extends IAIServiceForNormalizer {
   estimateLevel(
     taskText: string,
     triage: import('../../shared/types/harness').HarnessTriage,
-    requestId?: string
+    requestId?: string,
+    projectContext?: string
   ): Promise<Pick<DryRunResult, 'level' | 'answers' | 'rationale'>>
 
   /**
@@ -243,24 +246,53 @@ export class HarnessService {
    *
    * 처리 순서:
    * 1. normalize(bundlePath) 로 HarnessModel 획득 (캐시 hit 우선).
-   * 2. DryRunEstimator.estimate(model, taskText) 호출.
+   * 2. projectPath 가 지정된 경우:
+   *    a. gatherProjectProfile(projectPath, taskText) 로 프로파일 수집 (bound, 정적).
+   *    b. toPromptText(profile) 로 AI 입력용 요약 생성.
+   *    c. profileSignature(profile) 로 taskHash 용 캐시 서명 생성.
+   *    수집 실패 시 graceful — 맥락 없이 진행 + warning 로그.
+   * 3. DryRunEstimator.estimate(model, taskText, requestId, projectContext, profileSig) 호출.
    *    - taskHash 캐시 조회 → hit 이면 즉시 반환.
    *    - miss: AIService.estimateLevel(Haiku) + levelPath(결정론적) 결합.
-   * 3. 결과 반환.
+   * 4. 결과 반환.
    *
    * @param bundlePath - 번들 루트 절대경로
    * @param taskText - 태스크 설명 평문 또는 두레이 URL
    * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @param projectPath - 프로젝트 루트 절대경로 (선택).
+   *   지정 시 정적 스캔으로 레벨 추정 맥락을 보강한다 (파일 내용은 최소 읽기).
+   *   미지정 시 기존 동작 그대로 — 회귀 없음.
    * @returns DryRunResult
    */
-  async dryrun(bundlePath: string, taskText: string, requestId?: string): Promise<DryRunResult> {
+  async dryrun(
+    bundlePath: string,
+    taskText: string,
+    requestId?: string,
+    projectPath?: string
+  ): Promise<DryRunResult> {
     // 입력 길이 검증 — LLM 비용/유출 확대 방지
     if (taskText.length > MAX_TASK_TEXT_LENGTH) {
       throw new HarnessInputTooLongError('taskText', MAX_TASK_TEXT_LENGTH, taskText.length)
     }
 
     const model = await this.normalize(bundlePath, false, requestId)
-    return this.estimator.estimate(model, taskText, requestId)
+
+    // 프로젝트 맥락 수집 (optional)
+    let projectContext: string | undefined
+    let projectContextSig: string | undefined
+    if (projectPath) {
+      try {
+        const profile = await gatherProjectProfile(projectPath, taskText)
+        projectContext = toPromptText(profile)
+        projectContextSig = profileSignature(profile)
+      } catch (err) {
+        // graceful: 수집 실패 시 맥락 없이 진행
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[HarnessService] projectProfile 수집 실패 — 맥락 없이 진행. projectPath=${projectPath} reason=${msg}`)
+      }
+    }
+
+    return this.estimator.estimate(model, taskText, requestId, projectContext, projectContextSig)
   }
 
   // ─────────────────────────────────────────────
