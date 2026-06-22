@@ -166,6 +166,19 @@ export function GatesPanel({ model, sourcePath }: GatesPanelProps): JSX.Element 
                       <ProvenanceBadge source={descSource} size="xs" />
                     </div>
                   )}
+                  {/* 규칙 코드별 검사 내용 (스크립트 원문 메시지) */}
+                  {gate.ruleDetails && gate.ruleDetails.length > 0 && (
+                    <div className="flex flex-col gap-1 mt-1 pt-2 border-t border-[color:var(--bg-border)]">
+                      {gate.ruleDetails.map((d) => (
+                        <div key={d.code} className="flex items-start gap-2">
+                          <Chip tone="violet" square>{d.code}</Chip>
+                          <span className="text-[11px] text-[color:var(--text-tertiary)] leading-relaxed flex-1 min-w-0">
+                            {d.message}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </Card>
               )
             })}

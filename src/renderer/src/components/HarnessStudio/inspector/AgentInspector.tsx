@@ -229,14 +229,24 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
                   <Chip tone="emerald" square>경고만 (non-blocking)</Chip>
                 )}
               </div>
-              {/* 규칙코드 칩 */}
-              {gate.ruleCodes.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {gate.ruleCodes.map((code) => (
-                    <Chip key={code} tone="violet" square>{code}</Chip>
-                  ))}
-                </div>
-              )}
+              {/* 규칙코드 + 무엇을 검사하나 */}
+              {gate.ruleCodes.length > 0 && (() => {
+                const msgOf = new Map((gate.ruleDetails ?? []).map((d) => [d.code, d.message]))
+                return (
+                  <div className="flex flex-col gap-1">
+                    {gate.ruleCodes.map((code) => (
+                      <div key={code} className="flex items-start gap-1.5">
+                        <Chip tone="violet" square>{code}</Chip>
+                        {msgOf.get(code) && (
+                          <span className="text-[10px] text-[color:var(--text-tertiary)] leading-snug flex-1 min-w-0">
+                            {msgOf.get(code)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
               {/* description 전문 */}
               {gate.description && (
                 <p className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap">

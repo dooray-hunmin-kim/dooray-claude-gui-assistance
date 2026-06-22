@@ -16,7 +16,7 @@
 
 import { describe, it, expect } from 'vitest'
 import * as path from 'path'
-import { BundleScanner, extractRuleCodes, detectBlocking, parseGateScript } from '../BundleScanner'
+import { BundleScanner, extractRuleCodes, extractRuleDetails, detectBlocking, parseGateScript } from '../BundleScanner'
 
 const FIXTURES_DIR = path.join(__dirname, 'fixtures')
 const REINED_FIXTURE = path.join(FIXTURES_DIR, 'reined-fixture')
@@ -323,5 +323,37 @@ describe('BundleScanner — reined vs neon 번들 해시 독립성', () => {
       scanner.scan(NEON_FIXTURE),
     ])
     expect(reined.bundleHash).not.toBe(neon.bundleHash)
+  })
+})
+
+describe('extractRuleDetails — 규칙 코드별 메시지 추출', () => {
+  it('bare 코드 형태(gate_fail R510 "msg")에서 코드+메시지 추출', () => {
+    const s = 'gate_fail R510 "\'## 결정 사항\' 섹션 누락"'
+    const d = extractRuleDetails(s)
+    expect(d).toContainEqual({ code: 'R510', message: "'## 결정 사항' 섹션 누락" })
+  })
+
+  it('NEON 코드 형태(NEON-G01 "msg")', () => {
+    const d = extractRuleDetails('NEON-G01 "brief.md 없음"')
+    expect(d).toContainEqual({ code: 'NEON-G01', message: 'brief.md 없음' })
+  })
+
+  it('quoted 코드 형태(block "NEON-PUSH01" "msg")에서 메시지만 추출', () => {
+    const d = extractRuleDetails('  block "NEON-PUSH01" "main/master 강제 푸시 금지"')
+    const found = d.find((x) => x.code === 'NEON-PUSH01')
+    expect(found?.message).toBe('main/master 강제 푸시 금지')
+  })
+
+  it('중첩 따옴표($(basename))가 있어도 끝 따옴표까지 메시지 보존', () => {
+    const s = 'NEON-G10 "$(basename "$f"): \'## 설계\' 섹션 누락"'
+    const found = extractRuleDetails(s).find((x) => x.code === 'NEON-G10')
+    expect(found?.message).toContain('섹션 누락')
+  })
+
+  it('코드별 첫 메시지만 채택(중복 무시)', () => {
+    const s = 'R501 "first"\nR501 "second"'
+    const r501 = extractRuleDetails(s).filter((x) => x.code === 'R501')
+    expect(r501).toHaveLength(1)
+    expect(r501[0].message).toBe('first')
   })
 })

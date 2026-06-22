@@ -290,6 +290,12 @@ export interface HarnessGate {
    * 예) ['R501', 'R502'] (reined) / ['NEON-G01', 'AOP01'] (neon)
    */
   ruleCodes: string[]
+  /**
+   * [S] 규칙 코드별 검사 내용 — 게이트 스크립트의 `<코드> "메시지"` 에서 추출.
+   * 예) [{ code:'R510', message:"'## 결정 사항' 섹션 누락" }]
+   * 코드만으로는 의미를 알 수 없으므로 스크립트 원문 메시지를 그대로 노출(이해도).
+   */
+  ruleDetails?: { code: string; message: string }[]
   /** [AI] 이 게이트가 차단하는 내용 한 줄 설명 */
   description?: string
   /**

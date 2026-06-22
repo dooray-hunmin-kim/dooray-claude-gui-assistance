@@ -136,6 +136,44 @@ export function extractRuleCodes(scriptText: string): string[] {
   return [...codes].sort()
 }
 
+/** 규칙 코드 인식 정규식 (단일 코드) */
+const RULE_CODE_RE = /\b(R[0-9]{2,4}|[A-Z]{2,10}-[A-Z]{1,10}[0-9]{1,3}|[A-Z]{2,10}[0-9]{2,3})\b/
+
+/**
+ * 게이트 스크립트에서 **규칙 코드별 메시지**를 추출한다.
+ *
+ * 스크립트는 `gate_fail R510 "메시지"` / `block "NEON-PUSH01" "메시지"` /
+ * `NEON-G01 "brief.md 없음"` 처럼 코드 뒤에 사람이 읽는 메시지를 둔다.
+ * 코드만으로는 의미를 알 수 없으므로 이 메시지를 그대로 살려 이해도를 높인다.
+ *
+ * 추출 전략(라인 단위, nested `$(basename "$f")` 같은 중첩 따옴표도 보존):
+ * - 한 줄에서 코드를 찾고, 코드 뒤 첫 `"` 부터 그 줄 마지막 `"` 까지를 메시지로 본다.
+ * - 앞뒤 따옴표/공백/리다이렉트 기호는 정리. 코드별 첫 메시지만 채택(중복 무시).
+ *
+ * @param scriptText 게이트/hook 스크립트 전체 텍스트
+ * @returns 코드→메시지 배열 (메시지가 있는 코드만)
+ */
+export function extractRuleDetails(scriptText: string): { code: string; message: string }[] {
+  const map = new Map<string, string>()
+  for (const line of scriptText.split('\n')) {
+    const m = RULE_CODE_RE.exec(line)
+    if (!m) continue
+    const code = m[1]
+    if (map.has(code)) continue
+    const afterCode = line.slice(m.index + m[0].length)
+    const first = afterCode.indexOf('"')
+    const last = afterCode.lastIndexOf('"')
+    if (first < 0 || last <= first) continue
+    const message = afterCode
+      .slice(first + 1, last)
+      .replace(/^["\s>&|]+/, '') // 따옴표/공백/리다이렉트 잔여 제거 (block "CODE" "msg" 형태)
+      .replace(/["\s]+$/, '')
+      .trim()
+    if (message) map.set(code, message)
+  }
+  return [...map].map(([code, message]) => ({ code, message }))
+}
+
 /**
  * 게이트 스크립트 텍스트에서 blocking 여부를 판정한다.
  * exit 1 또는 exit 2 가 있으면 진짜 차단으로 간주한다.
@@ -164,12 +202,17 @@ export function parseGateScript(scriptText: string, scriptFile: string): RawGate
   const phases = extractPhaseLabels(scriptText)
   const allCodes = extractRuleCodes(scriptText)
   const blocking = detectBlocking(scriptText)
+  // 코드→메시지 전역 맵 (각 게이트는 자기 ruleCodes 에 해당하는 메시지만 추려 담는다)
+  const detailMap = new Map(extractRuleDetails(scriptText).map((d) => [d.code, d.message]))
+  const detailsFor = (codes: string[]): { code: string; message: string }[] =>
+    codes.filter((c) => detailMap.has(c)).map((c) => ({ code: c, message: detailMap.get(c)! }))
 
   if (phases.length === 0) {
     // phase 없음 — 단일 게이트
     return [{
       phase: '*',
       ruleCodes: allCodes,
+      ruleDetails: detailsFor(allCodes),
       blocking,
       scriptFile,
     }]
@@ -209,6 +252,7 @@ export function parseGateScript(scriptText: string, scriptFile: string): RawGate
     gates.push({
       phase,
       ruleCodes: combined,
+      ruleDetails: detailsFor(combined),
       blocking,
       scriptFile,
     })

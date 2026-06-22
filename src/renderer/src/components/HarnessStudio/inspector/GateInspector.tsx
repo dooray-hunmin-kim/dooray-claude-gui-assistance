@@ -156,18 +156,24 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
           </span>
         </Section>
 
-        {/* 규칙 코드 전체 */}
-        {gate.ruleCodes.length > 0 && (
-          <Section label={`규칙 코드 (${gate.ruleCodes.length}개)`}>
-            <div className="flex flex-wrap gap-1">
-              {gate.ruleCodes.map((code) => (
-                <Chip key={code} tone="violet" square>
-                  {code}
-                </Chip>
-              ))}
-            </div>
-          </Section>
-        )}
+        {/* 규칙 코드별 검사 내용 — 코드 + 스크립트 원문 메시지 */}
+        {gate.ruleCodes.length > 0 && (() => {
+          const msgOf = new Map((gate.ruleDetails ?? []).map((d) => [d.code, d.message]))
+          return (
+            <Section label={`규칙 코드 (${gate.ruleCodes.length}개) — 무엇을 검사하나`}>
+              <div className="flex flex-col gap-1.5">
+                {gate.ruleCodes.map((code) => (
+                  <div key={code} className="flex items-start gap-2">
+                    <Chip tone="violet" square>{code}</Chip>
+                    <span className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed flex-1 min-w-0">
+                      {msgOf.get(code) ?? '(스크립트에서 설명 추출 안 됨)'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )
+        })()}
 
         {/* description 전문 — truncate 금지 */}
         {gate.description && (

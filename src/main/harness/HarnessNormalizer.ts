@@ -518,6 +518,7 @@ function mergeWithStatic(
       // [S] 필드
       phase: sg.phase,
       ruleCodes: sg.ruleCodes,
+      ...(sg.ruleDetails ? { ruleDetails: sg.ruleDetails } : {}),
       blocking: sg.blocking,
       scriptFile: sg.scriptFile,
       // [AI] 필드
