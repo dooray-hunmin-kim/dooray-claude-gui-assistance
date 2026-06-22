@@ -135,12 +135,26 @@ ${skeletonJson}
 
 ${rawBundleText}
 
-## 요청
-위 스켈레톤에서 비어있거나 undefined/[] 인 [AI] 필드를 채운 **완전한 HarnessModel JSON** 을 반환하세요.
-- [S] 필드는 스켈레톤 값 그대로 유지 (단, model="unknown" 항목은 위 규칙대로 매트릭스에서 채움)
-- 채운 [AI] 필드는 provenance 맵에 {"경로": "ai"} 로 기록
-- 추출 실패한 항목은 warnings 배열에 추가
-- 결과는 순수 JSON 만 (코드블록, 설명 텍스트 금지)`
+## 출력 형식 (중요 — 크기 최소화로 JSON 잘림/오류 방지)
+**[AI] 필드만 담은 컴팩트 JSON** 을 반환하세요. [S] 배열·필드(tools, ruleCodes, blocking, template, displayName, fileTree, bundleHash 등)는 **절대 echo 하지 마세요**. 각 객체에는 머지용 **매칭 키만** 포함:
+
+\`\`\`
+{
+  "meta": { "author"?, "tagline"? },
+  "agents": [ { "id": "<매칭키 필수>", "role", "reads", "writes", "phaseClass", "escalation"?, "signals"?, "riskNote"?, "model"? } ],
+  "levels": [ { "id", "name", "agentChain", "parallelInChain"?, "requiredArtifacts" } ],
+  "triage": { "questions": [...], "rules": [...], "securityOverride"? },
+  "artifacts": [ { "id": "<매칭키 필수>", "producer"?, "consumers", "location"?, "persist" } ],
+  "controlFlow": { "gates": [ { "phase": "<매칭키 필수>", "description" } ], "hooks": [ { "file": "<매칭키>", "enforces" } ], "parallelGroups", "loops", "stateMachine"? },
+  "score"?: {...}, "warnings": [...], "provenance": {...}
+}
+\`\`\`
+
+규칙:
+- agents/artifacts 는 \`id\`, gates 는 \`phase\`, hooks 는 \`file\` 을 매칭 키로 **반드시** 포함.
+- agents[].model 은 기존이 "unknown" 인 항목만 위 매트릭스 규칙대로 채우고, 아니면 생략.
+- 채운 [AI] 필드는 provenance 에 {"경로": "ai"} 기록. 추출 실패는 warnings 에.
+- **순수 JSON 만** (코드블록·설명 금지). **마지막 요소 뒤 쉼표(trailing comma) 절대 금지**, 모든 괄호/대괄호를 반드시 닫을 것.`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

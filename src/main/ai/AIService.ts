@@ -189,6 +189,36 @@ function wrapClaudeError(message: string, stderr?: string): Error {
   return new Error(`Claude CLI 오류: ${message}`)
 }
 
+/**
+ * 잘린(truncated) JSON 을 최선 복구 — 열린 채 닫히지 않은 `{`/`[` 을 끝에 닫아준다.
+ * 문자열 리터럴 내부의 괄호·이스케이프는 무시하고, 마지막 trailing comma 도 제거한다.
+ * LLM 출력이 토큰 한계로 중간에 끊긴 경우의 last-resort 복구용(완벽하지 않음).
+ */
+export function balanceBrackets(text: string): string {
+  const stack: string[] = []
+  let inStr = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (inStr) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') inStr = true
+    else if (ch === '{' || ch === '[') stack.push(ch)
+    else if (ch === '}' || ch === ']') stack.pop()
+  }
+  let out = text
+  if (inStr) out += '"' // 끊긴 문자열 닫기
+  out = out.replace(/,\s*$/, '') // 끝의 trailing comma 제거
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === '{' ? '}' : ']'
+  }
+  return out
+}
+
 function buildArgs(prompt: string, opts: {
   model?: string
   systemPrompt?: string
@@ -1376,7 +1406,7 @@ ${useMcp ? `
     const args = buildArgs(userPrompt, {
       model,
       systemPrompt,
-      maxBudget: '2.5',  // Opus + 큰 번들 — 1회성·캐시되므로 넉넉히
+      maxBudget: '3.5',  // Opus + 큰 번들, 컴팩트 출력이라도 넉넉히 (1회성·캐시)
       effort: 'medium',
       noTools: true  // 정규화는 순수 텍스트 분석 — 도구 불필요
     })
@@ -1394,6 +1424,23 @@ ${useMcp ? `
     // 마크다운 코드블록 제거 후 JSON 추출
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+
+    // LLM JSON 관용 복구: 직접 파싱 → trailing comma 제거 → 괄호 균형 보정(잘림 대비) 순으로 시도.
+    const tryParseLenient = (text: string): HarnessModel | null => {
+      const attempts = [
+        text,
+        text.replace(/,(\s*[}\]])/g, '$1'), // trailing comma 제거
+        balanceBrackets(text.replace(/,(\s*[}\]])/g, '$1')) // 잘린 경우 열린 괄호 닫기
+      ]
+      for (const candidate of attempts) {
+        try {
+          return JSON.parse(candidate) as HarnessModel
+        } catch {
+          // 다음 복구 전략 시도
+        }
+      }
+      return null
+    }
 
     if (!jsonMatch) {
       // JSON 추출 실패 — 스켈레톤에 경고 추가 후 축소 반환
@@ -1416,11 +1463,13 @@ ${useMcp ? `
       return fallback
     }
 
-    try {
-      const normalized = JSON.parse(jsonMatch[0]) as HarnessModel
+    const normalized = tryParseLenient(jsonMatch[0])
+    if (normalized) {
       return normalized
-    } catch (err) {
-      // 파싱 예외 — 축소 모델 반환
+    }
+    {
+      // 모든 복구 시도 실패 — 축소 모델 반환
+      const err = new Error('JSON 파싱/복구 실패')
       const fallback: HarnessModel = {
         schemaVersion: 1,
         meta: (skeleton.meta as HarnessModel['meta']) ?? {

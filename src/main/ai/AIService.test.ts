@@ -57,7 +57,7 @@ vi.mock('electron', () => ({
   }
 }))
 
-import { AIService, getClaudeBin, setUserAnthropicApiKey } from './AIService'
+import { AIService, getClaudeBin, setUserAnthropicApiKey, balanceBrackets } from './AIService'
 
 beforeEach(() => {
   lastSpawn = null
@@ -758,5 +758,36 @@ describe('AIService.explainHarness — Mac/Windows 플랫폼 분기', () => {
     expect(argv[mIdx + 1]).toBe('sonnet')
     emitResult('## 설명')
     await promise
+  })
+})
+
+describe('balanceBrackets — 잘린 JSON 복구', () => {
+  it('정상 JSON 은 그대로 파싱된다', () => {
+    const s = '{"a":[1,2],"b":{"c":3}}'
+    expect(JSON.parse(balanceBrackets(s))).toEqual({ a: [1, 2], b: { c: 3 } })
+  })
+
+  it('열린 객체/배열이 닫히지 않은 경우 닫아준다', () => {
+    const s = '{"agents":[{"id":"x","role":"r"'
+    const fixed = balanceBrackets(s)
+    expect(() => JSON.parse(fixed)).not.toThrow()
+    expect(JSON.parse(fixed).agents[0].id).toBe('x')
+  })
+
+  it('끊긴 문자열을 닫는다', () => {
+    const s = '{"a":"unterminated'
+    const fixed = balanceBrackets(s)
+    expect(() => JSON.parse(fixed)).not.toThrow()
+  })
+
+  it('끝의 trailing comma 를 제거한다', () => {
+    const s = '{"a":[1,2,'
+    const fixed = balanceBrackets(s)
+    expect(JSON.parse(fixed).a).toEqual([1, 2])
+  })
+
+  it('문자열 내부의 괄호는 구조로 세지 않는다', () => {
+    const s = '{"a":"][}{ 안의 괄호","b":1}'
+    expect(JSON.parse(balanceBrackets(s)).a).toBe('][}{ 안의 괄호')
   })
 })
