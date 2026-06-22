@@ -31,8 +31,10 @@ export interface FrontmatterResult {
  * @param content 마크다운 파일 전체 내용
  */
 export function extractFrontmatterRaw(content: string): string | null {
-  // BOM 제거
-  const text = content.replace(/^﻿/, '')
+  // BOM 제거 + 줄바꿈 정규화(CRLF/CR → LF).
+  // Windows 에서 체크아웃·저작된 번들은 '\r\n' 을 쓰는데, JS 정규식의 '.'·'$' 가 '\r' 을
+  // 줄terminator 로 취급해 `name:`/`tools:` 스칼라 추출이 깨진다(크로스플랫폼 회귀).
+  const text = content.replace(/^﻿/, '').replace(/\r\n?/g, '\n')
   if (!text.startsWith('---')) return null
 
   const end = text.indexOf('\n---', 3)

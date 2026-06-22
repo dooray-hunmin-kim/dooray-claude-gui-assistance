@@ -194,3 +194,28 @@ describe('parseFrontmatter — 대괄호 인라인 배열', () => {
     expect(result.tools).toEqual(expect.arrayContaining(['Read', 'Edit', 'Write']))
   })
 })
+
+describe('parseFrontmatter — CRLF 줄바꿈 (Windows 회귀 방지)', () => {
+  // Windows 체크아웃/저작 번들은 '\r\n' 을 쓴다. JS 정규식의 '.'·'$' 가 '\r' 을
+  // 줄terminator 로 취급해 스칼라/리스트 추출이 깨졌던 회귀(Windows CI 실패)를 고정한다.
+  it('CRLF frontmatter 에서 name/model/tools 를 정상 추출한다', () => {
+    const content = '---\r\nname: code-reviewer\r\nmodel: haiku\r\ntools:\r\n  - Read\r\n  - mcp__mysql__query\r\n---\r\n# Agent\r\n'
+    const result = parseFrontmatter(content)
+    expect(result.name).toBe('code-reviewer')
+    expect(result.model).toBe('haiku')
+    expect(result.tools).toEqual(expect.arrayContaining(['Read', 'mcp__mysql__query']))
+  })
+
+  it('CRLF 인라인 tools 도 추출한다', () => {
+    const content = '---\r\nname: x\r\nallowed-tools: Read, Edit\r\n---\r\n'
+    const result = parseFrontmatter(content)
+    expect(result.name).toBe('x')
+    expect(result.tools).toEqual(expect.arrayContaining(['Read', 'Edit']))
+  })
+
+  it('CRLF frontmatter raw 에 \\r 이 남지 않는다', () => {
+    const raw = extractFrontmatterRaw('---\r\nname: x\r\n---\r\n')
+    expect(raw).not.toBeNull()
+    expect(raw).not.toContain('\r')
+  })
+})
