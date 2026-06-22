@@ -27,7 +27,8 @@ import {
   Info,
   FolderOpen,
   X,
-  CheckCircle2
+  CheckCircle2,
+  AlertTriangle
 } from 'lucide-react'
 import type { DryRunResult, HarnessModel } from '@shared/types/harness'
 import Button from '@/components/common/ds/Button'
@@ -42,6 +43,7 @@ import {
   levelTone,
   LEVEL_LABEL,
   isDoorayTaskUrl,
+  parseDoorayTaskUrl,
   hasMeaningfulResult,
   formatProjectPath
 } from './dryRunUtils'
@@ -90,6 +92,9 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [pickingDir, setPickingDir] = useState(false)
+  // 두레이 URL 해석 결과 — 불러온 태스크 제목 / 조회 실패 경고
+  const [resolvedTask, setResolvedTask] = useState<string | null>(null)
+  const [resolveWarn, setResolveWarn] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { progress, start: startProgress, done: doneProgress, isActive } = useAIProgress()
@@ -123,9 +128,33 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
     const requestId = startProgress()
 
     try {
+      // 두레이 태스크 URL 이면 본문을 먼저 가져와 추정 입력으로 쓴다(AI 는 URL 을 못 가져옴).
+      let estimateText = trimmed
+      const dooray = parseDoorayTaskUrl(trimmed)
+      if (dooray) {
+        try {
+          const detail = await window.api.dooray.tasks.detail(dooray.projectId, dooray.taskId)
+          const body = detail.body?.content
+            ? detail.body.content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+            : ''
+          const subject = detail.subject ?? ''
+          if (subject || body) {
+            estimateText = `${subject}\n\n${body}`.trim()
+            setResolvedTask(subject || '(제목 없음)')
+          }
+        } catch {
+          // 조회 실패 — URL 텍스트 그대로 진행하되 사용자에게 고지
+          setResolvedTask(null)
+          setResolveWarn('두레이 태스크를 불러오지 못해 URL 텍스트만으로 추정합니다. (두레이 연동/권한 확인)')
+        }
+      } else {
+        setResolvedTask(null)
+        setResolveWarn(null)
+      }
+
       const res = await window.api.harness.dryrun({
         path: model.meta.source,
-        taskText: trimmed,
+        taskText: estimateText,
         requestId,
         ...(projectPath ? { projectPath } : {})
       })
@@ -229,6 +258,8 @@ export function DryRunPanel({ model, onHighlight, onGoToFlow }: DryRunPanelProps
       onReset={handleReset}
       onGoToFlow={handleGoToFlow}
       hasFlowCallback={Boolean(onHighlight && onGoToFlow)}
+      resolvedTask={resolvedTask}
+      resolveWarn={resolveWarn}
     />
   )
 }
@@ -411,9 +442,13 @@ interface ResultViewProps {
   onReset: () => void
   onGoToFlow: () => void
   hasFlowCallback: boolean
+  /** 두레이 URL 에서 불러온 태스크 제목. null 이면 미해당. */
+  resolvedTask: string | null
+  /** 두레이 조회 실패 경고. */
+  resolveWarn: string | null
 }
 
-function ResultView({ result, taskText, projectPath, onReset, onGoToFlow, hasFlowCallback }: ResultViewProps): JSX.Element {
+function ResultView({ result, taskText, projectPath, onReset, onGoToFlow, hasFlowCallback, resolvedTask, resolveWarn }: ResultViewProps): JSX.Element {
   const timeline = buildTimeline(result.highlightPath, result.parallelGroups)
   const meaningful = hasMeaningfulResult(result)
 
@@ -437,6 +472,23 @@ function ResultView({ result, taskText, projectPath, onReset, onGoToFlow, hasFlo
             재입력
           </Button>
         </div>
+
+        {/* 두레이 태스크 해석 결과 */}
+        {resolvedTask && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[color:var(--c-blue-bg)] border border-[color:var(--bg-border)]">
+            <CheckCircle2 size={13} className="flex-none text-[color:var(--c-blue-fg)]" />
+            <span className="text-xs text-[color:var(--c-blue-fg)] font-medium flex-none">두레이 태스크 불러옴</span>
+            <span className="text-xs text-[color:var(--text-secondary)] truncate" title={resolvedTask}>
+              {resolvedTask}
+            </span>
+          </div>
+        )}
+        {resolveWarn && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-[color:var(--c-yellow-bg)] border border-[color:var(--bg-border)]">
+            <AlertTriangle size={13} className="flex-none text-[color:var(--c-yellow-fg)] mt-0.5" />
+            <span className="text-xs text-[color:var(--text-secondary)]">{resolveWarn}</span>
+          </div>
+        )}
 
         {/* 추정 맥락 배지 */}
         {projectPath ? (

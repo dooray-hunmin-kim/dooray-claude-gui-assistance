@@ -10,6 +10,7 @@ import {
   formatProjectPath,
   buildTimeline,
   isDoorayTaskUrl,
+  parseDoorayTaskUrl,
   formatGates,
   hasMeaningfulResult,
   levelTone,
@@ -194,5 +195,22 @@ describe('formatRelativeCost', () => {
 
   it('1.0 이면 L0 기준 문자열을 반환한다', () => {
     expect(formatRelativeCost(1)).toContain('L0 기준')
+  })
+})
+
+describe('parseDoorayTaskUrl', () => {
+  it('웹 UI URL 에서 projectId/taskId 추출', () => {
+    const r = parseDoorayTaskUrl('https://nhnent.dooray.com/task/1425907308209203105/4335185821487949036?to=3533031628905444136')
+    expect(r).toEqual({ projectId: '1425907308209203105', taskId: '4335185821487949036' })
+  })
+  it('형식 불일치는 null', () => {
+    expect(parseDoorayTaskUrl('결제 API 추가')).toBeNull()
+    expect(parseDoorayTaskUrl('https://nhnent.dooray.com/project/tasks/123')).toBeNull()
+  })
+})
+
+describe('isDoorayTaskUrl — 웹 UI 형식', () => {
+  it('/task/{pid}/{tid} 형식도 인식', () => {
+    expect(isDoorayTaskUrl('https://nhnent.dooray.com/task/1425907308209203105/4335185821487949036?to=x')).toBe(true)
   })
 })

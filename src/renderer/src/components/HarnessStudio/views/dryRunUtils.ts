@@ -135,10 +135,27 @@ export function buildTimeline(
 
 /**
  * 입력 문자열이 두레이 태스크 URL 인지 판별한다.
- * 예) https://nhnent.dooray.com/xxx/tasks/123456789
+ * 지원 형식:
+ * - 웹 UI: https://nhnent.dooray.com/task/{projectId}/{taskId}?to=...
+ * - 레거시: https://.../xxx/tasks/{taskId}
  */
 export function isDoorayTaskUrl(text: string): boolean {
-  return /https?:\/\/[^/]*dooray\.com\/.+\/tasks\/\d+/i.test(text.trim())
+  const t = text.trim()
+  return /https?:\/\/[^/]*dooray\.com\/task\/\d+\/\d+/i.test(t)
+    || /https?:\/\/[^/]*dooray\.com\/.+\/tasks\/\d+/i.test(t)
+}
+
+/**
+ * 두레이 태스크 URL 에서 projectId / taskId 를 추출한다.
+ * 웹 UI 형식(`/task/{projectId}/{taskId}`)만 두 ID 를 모두 제공하므로
+ * 태스크 상세 조회(getTaskDetail)에 사용할 수 있다.
+ *
+ * @returns { projectId, taskId } 또는 null (형식 불일치/추출 불가)
+ */
+export function parseDoorayTaskUrl(text: string): { projectId: string; taskId: string } | null {
+  const m = text.trim().match(/dooray\.com\/task\/(\d+)\/(\d+)/i)
+  if (!m) return null
+  return { projectId: m[1], taskId: m[2] }
 }
 
 // ─────────────────────────────────────────────
