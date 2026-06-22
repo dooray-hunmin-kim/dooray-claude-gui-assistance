@@ -110,4 +110,12 @@ export interface AIModelConfig {
    * 기본값: 'sonnet' — 설명 품질과 비용의 균형상 Sonnet 이 적합.
    */
   harnessExplain?: AIModelName
+  /**
+   * Harness Studio — AI 편집 제안 모델 (HARNESS_AI_EDIT).
+   * 자연어 명령 → 파일 변경안 JSON 출력 시 사용 (AIService.proposeEdit).
+   * 기본값: 'sonnet' — 편집은 정밀 텍스트 변환이므로 Sonnet 이 균형상 적합.
+   * 설계 변경 수준의 명령은 사용자가 Opus 로 직접 승격 가능.
+   * Windows stdin combine 경로(큰 system prompt) 영향이 있으므로 변경 시 양쪽 플랫폼 테스트 필수.
+   */
+  harnessEdit?: AIModelName
 }

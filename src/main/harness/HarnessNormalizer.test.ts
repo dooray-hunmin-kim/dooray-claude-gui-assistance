@@ -70,6 +70,7 @@ function makeRawBundle(overrides: Partial<RawBundle> = {}): RawBundle {
     ],
     warnings: [],
     version: '1.0.0',
+    agentSourceMap: {},
     ...overrides,
   }
 }

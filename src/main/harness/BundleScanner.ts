@@ -26,6 +26,7 @@ import { computeBundleHash, type FileHashEntry } from './bundleHash'
 import { detectBundleKind } from './bundleDetect'
 import type { RawBundleSummary } from '../../shared/types/harness'
 import type { HarnessAgent, HarnessGate, HarnessHook, HarnessMeta, FieldSource } from '../../shared/types/harness'
+import type { AgentSourceMap } from '../../shared/types/harness-edit'
 
 // ─────────────────────────────────────────────
 // 내부 중간 표현 타입 (AI 정규화 전 정적 데이터)
@@ -83,6 +84,16 @@ export interface RawBundle {
   version?: string
   /** _core/models.md 내용 (model 매트릭스 폴백용) */
   modelsMatrixRaw?: string
+  /**
+   * 에이전트 ID → frontmatter 필드별 출처 파일 상대경로 인덱스.
+   *
+   * 편집 기능(M1+)이 "어느 파일의 frontmatter 를 고칠지"를 결정론적으로 파악하기 위해
+   * 병합 시점에 기록한다. AI 없음, 순수 정적.
+   *
+   * 기존 agentStubs 의 model/tools 값은 불변 — SourceMap 은 별도 맵으로 분리.
+   * read-only 기능은 이 필드를 무시해도 동작에 영향이 없다(append-only).
+   */
+  agentSourceMap: AgentSourceMap
 }
 
 // ─────────────────────────────────────────────
@@ -417,6 +428,8 @@ export class BundleScanner {
 
     // ── 2. 콘텐츠 읽기 및 frontmatter 파싱 ────────────
     const agentStubMap = new Map<string, AgentStub>()
+    /** agentId → 각 필드의 출처 파일 상대경로 (편집 기능 M1) */
+    const sourceMapBuilder = new Map<string, { nameFile: string; modelFile?: string; toolsFile?: string }>()
     const hashEntries: FileHashEntry[] = []
     const templates: RawTemplate[] = []
     let version: string | undefined
@@ -477,15 +490,27 @@ export class BundleScanner {
           // 중복 id 방지 — _agents/ 정의가 있으면 SKILL.md 를 덮어쓰지 않음 (우선순위 보존)
           if (!agentStubMap.has(fm.name)) {
             agentStubMap.set(fm.name, stub)
+            // SourceMap: 최초 정의 파일 기록 (nameFile 항상 기록)
+            sourceMapBuilder.set(fm.name, {
+              nameFile: relPath,
+              modelFile: fm.model !== undefined ? relPath : undefined,
+              toolsFile: fm.tools.length > 0 ? relPath : undefined,
+            })
           } else {
             // _agents/ 정의에 tools 가 없으면 SKILL.md 의 tools 로 보강
             const existing = agentStubMap.get(fm.name)!
             if (existing.tools.length === 0 && stub.tools.length > 0) {
               agentStubMap.set(fm.name, { ...existing, tools: stub.tools })
+              // SourceMap: tools 출처를 현 파일로 갱신
+              const src = sourceMapBuilder.get(fm.name)
+              if (src) sourceMapBuilder.set(fm.name, { ...src, toolsFile: relPath })
             }
             // model 이 absent 면 새 값으로 교체
             if (existing.modelSource === 'absent' && modelSource !== 'absent') {
               agentStubMap.set(fm.name, { ...existing, model, modelSource })
+              // SourceMap: model 출처를 현 파일로 갱신
+              const src = sourceMapBuilder.get(fm.name)
+              if (src) sourceMapBuilder.set(fm.name, { ...src, modelFile: relPath })
             }
           }
         }
@@ -585,6 +610,7 @@ export class BundleScanner {
       warnings,
       version,
       modelsMatrixRaw,
+      agentSourceMap: Object.fromEntries(sourceMapBuilder),
     }
   }
 

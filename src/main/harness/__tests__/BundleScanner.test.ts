@@ -326,6 +326,125 @@ describe('BundleScanner — reined vs neon 번들 해시 독립성', () => {
   })
 })
 
+// ─────────────────────────────────────────────
+// AgentSourceMap — M1 출처 추적 테스트
+// ─────────────────────────────────────────────
+
+describe('BundleScanner — agentSourceMap (M1 출처 추적)', () => {
+  describe('reined-fixture — _agents/*.md 에서 model 출처 추적', () => {
+    it('agentSourceMap 이 비어있지 않다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(REINED_FIXTURE)
+      expect(Object.keys(result.agentSourceMap).length).toBeGreaterThan(0)
+    })
+
+    it('developer 에이전트의 nameFile 이 _agents/ 파일이다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(REINED_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev).toBeDefined()
+      const src = result.agentSourceMap[dev!.id]
+      expect(src).toBeDefined()
+      expect(src.nameFile).toMatch(/^_agents\//)
+    })
+
+    it('developer 에이전트의 modelFile 이 존재한다 (_agents/*.md 에 model: sonnet 있음)', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(REINED_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev).toBeDefined()
+      const src = result.agentSourceMap[dev!.id]
+      expect(src.modelFile).toBeDefined()
+      // modelFile 은 nameFile 과 동일 (_agents/*.md 가 model 도 정의함)
+      expect(src.modelFile).toBe(src.nameFile)
+    })
+
+    it('developer 에이전트의 toolsFile 이 존재한다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(REINED_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev).toBeDefined()
+      const src = result.agentSourceMap[dev!.id]
+      expect(src.toolsFile).toBeDefined()
+    })
+
+    it('agentSourceMap 키가 agentStubs id 집합과 일치한다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(REINED_FIXTURE)
+      const stubIds = new Set(result.agentStubs.map((a) => a.id))
+      const mapIds = new Set(Object.keys(result.agentSourceMap))
+      expect(mapIds).toEqual(stubIds)
+    })
+  })
+
+  describe('neon-fixture — SKILL.md 에 model 키 없음 → modelFile undefined', () => {
+    it('developer 에이전트의 nameFile 이 SKILL.md 이다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(NEON_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev).toBeDefined()
+      const src = result.agentSourceMap[dev!.id]
+      expect(src).toBeDefined()
+      expect(src.nameFile).toMatch(/SKILL\.md$/)
+    })
+
+    it('neon developer 에이전트의 modelFile 이 undefined (model 키 부재)', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(NEON_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev).toBeDefined()
+      // neon-fixture developer SKILL.md 에는 model: 키가 없다
+      expect(dev?.modelSource).toBe('absent')
+      const src = result.agentSourceMap[dev!.id]
+      expect(src.modelFile).toBeUndefined()
+    })
+
+    it('neon developer 에이전트의 toolsFile 이 SKILL.md 이다 (allowed-tools 있음)', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(NEON_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev).toBeDefined()
+      const src = result.agentSourceMap[dev!.id]
+      expect(src.toolsFile).toBeDefined()
+      expect(src.toolsFile).toMatch(/SKILL\.md$/)
+    })
+
+    it('agentSourceMap 키가 agentStubs id 집합과 일치한다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(NEON_FIXTURE)
+      const stubIds = new Set(result.agentStubs.map((a) => a.id))
+      const mapIds = new Set(Object.keys(result.agentSourceMap))
+      expect(mapIds).toEqual(stubIds)
+    })
+  })
+
+  describe('agentSourceMap 은 기존 agentStubs 값에 영향을 주지 않는다 (회귀 0)', () => {
+    it('reined developer model 값이 변경되지 않는다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(REINED_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev?.model).toBe('sonnet')
+      expect(dev?.modelSource).toBe('static')
+    })
+
+    it('neon developer model 값이 변경되지 않는다', async () => {
+      const scanner = new BundleScanner()
+      const result = await scanner.scan(NEON_FIXTURE)
+      const dev = result.agentStubs.find((a) => a.id.includes('developer'))
+      expect(dev?.model).toBe('unknown')
+      expect(dev?.modelSource).toBe('absent')
+    })
+
+    it('toSummary 는 agentSourceMap 을 포함하지 않는다 (기존 시그니처 불변)', async () => {
+      const scanner = new BundleScanner()
+      const raw = await scanner.scan(REINED_FIXTURE)
+      const summary = scanner.toSummary(raw)
+      // RawBundleSummary 에 agentSourceMap 필드가 없음을 확인
+      expect('agentSourceMap' in summary).toBe(false)
+    })
+  })
+})
+
 describe('extractRuleDetails — 규칙 코드별 메시지 추출', () => {
   it('bare 코드 형태(gate_fail R510 "msg")에서 코드+메시지 추출', () => {
     const s = 'gate_fail R510 "\'## 결정 사항\' 섹션 누락"'
