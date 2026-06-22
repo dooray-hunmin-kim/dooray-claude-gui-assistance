@@ -84,22 +84,22 @@ export function ViewExplainer({
       {/* 제목 행 */}
       <div className="flex items-center gap-2">
         {Icon ? (
-          <Icon size={13} className="text-[color:var(--clauday-blue)] flex-none" />
+          <Icon size={16} className="text-[color:var(--clauday-blue)] flex-none" />
         ) : (
-          <Info size={13} className="text-[color:var(--clauday-blue)] flex-none" />
+          <Info size={16} className="text-[color:var(--clauday-blue)] flex-none" />
         )}
-        <span className="text-xs font-semibold text-[color:var(--text-primary)]">{title}</span>
+        <span className="text-sm font-semibold text-[color:var(--text-primary)]">{title}</span>
         {hasExplainApi && (
           <div className="ml-auto">
             <Button
-              variant="ghost"
-              size="xs"
-              leftIcon={<Sparkles size={10} />}
+              variant="secondary"
+              size="sm"
+              leftIcon={<Sparkles size={14} />}
               onClick={() => void handleExplain()}
               disabled={loading}
-              title="AI 심화 설명 요청"
+              title="이 화면 내용을 AI 가 쉽게 설명해 줍니다"
             >
-              {loading ? '생성 중...' : markdown ? (explainOpen ? '접기' : 'AI 설명 보기') : 'AI 설명 보기'}
+              {loading ? 'AI 설명 생성 중…' : markdown ? (explainOpen ? '설명 접기' : 'AI 설명 보기') : 'AI 설명 보기'}
             </Button>
           </div>
         )}
@@ -123,7 +123,7 @@ export function ViewExplainer({
       {markdown && (
         <div className="flex flex-col gap-1">
           <button
-            className="flex items-center gap-1 text-[color:var(--text-tertiary)] hover:text-[color:var(--text-secondary)] transition-colors w-fit"
+            className="flex items-center gap-1 text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)] transition-colors w-fit"
             onClick={() => setExplainOpen((v) => !v)}
             aria-expanded={explainOpen}
           >
