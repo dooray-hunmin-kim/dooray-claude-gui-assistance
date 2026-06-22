@@ -326,13 +326,17 @@ export class HarnessService {
   // ─────────────────────────────────────────────
 
   /**
-   * ~/.claude/skills/* 를 정적으로 스캔해 발견된 번들 목록을 반환한다.
+   * ~/.claude/skills/* 를 정적으로 스캔해 **실제 하네스 번들만** 반환한다.
    *
-   * 각 하위 디렉터리를 번들 후보로 간주하고,
-   * detectBundleKind 로 kind 를 판정한다.
+   * `~/.claude/skills` 에는 단일 스킬·임의 폴더가 수십 개 섞여 있으므로,
+   * 자동 발견 목록을 의미 있게 유지하기 위해 다음을 필터링한다:
+   * - 숨김/백업 디렉터리(`.` 로 시작 — `.claude`, `.omc`, `*.bak-*` 등) 제외
+   * - `detectBundleKind` 결과가 `'bundle'` 인 항목만 포함
+   *   (단일 스킬 `partial-skill`·임의 폴더 `task` 노이즈 제거).
+   *   단일 스킬·임의 폴더를 보려면 위저드의 폴더 선택/드롭을 쓴다.
    * 오류 발생 시 해당 항목을 스킵하고 계속 진행한다.
    *
-   * @returns DiscoveredHarness 배열
+   * @returns 실제 하네스 번들 DiscoveredHarness 배열
    */
   async discover(): Promise<DiscoveredHarness[]> {
     const skillsRoot = path.join(homedir(), '.claude', 'skills')
@@ -348,28 +352,33 @@ export class HarnessService {
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
+      // 숨김/백업 디렉터리 제외 (.claude, .omc, .reined-bmad.bak-... 등)
+      if (entry.name.startsWith('.')) continue
       const bundlePath = path.join(skillsRoot, entry.name)
       try {
-        // 파일 목록만 간단히 읽어 kind 판정 (전체 scan 은 비용이 크므로 최소화)
-        // 1-depth 한계: fs.readdir 는 최상위 엔트리만 반환하므로
-        // _core/_agents/_templates 같은 신호 디렉터리가 비어있으면 detectBundleKind 가
-        // partial 로 오분류할 수 있다.
-        // 해결: 최상위 디렉터리 엔트리를 `dirName/_sentinel` 형태로 합성해 신호로 주입 —
-        // `^_core\/` 같은 패턴이 매칭되도록 1단계 더 확인한다.
+        // kind 판정용으로 2단계까지 파일명을 수집한다(전체 scan 은 과도하므로 깊이 2 로 제한).
+        // 깊이 2 가 필요한 이유: neon-bmad 는 `_agents/` 없이 `developer/SKILL.md` 처럼
+        // 역할 폴더 안에 SKILL.md 가 있어, 1단계만 보면 skillMdCount=0 → bundle 오판(누락)된다.
+        // reined-bmad(`_agents/*.md`)·neon-bmad(`<role>/SKILL.md`) 모두 정확히 잡으려면 2단계 필요.
         const subEntries = await fs.readdir(bundlePath, { withFileTypes: true, encoding: 'utf-8' })
-        const filePaths: string[] = subEntries.map((e) => {
-          // 디렉터리 엔트리는 내부에 파일이 있다고 가정하는 sentinel 경로를 생성
-          if (e.isDirectory && e.isDirectory()) {
-            return `${e.name}/_sentinel`
+        const filePaths: string[] = []
+        for (const e of subEntries) {
+          if (e.isDirectory()) {
+            try {
+              const children = await fs.readdir(path.join(bundlePath, e.name), { encoding: 'utf-8' })
+              if (children.length === 0) filePaths.push(`${e.name}/_sentinel`)
+              else for (const c of children) filePaths.push(`${e.name}/${c}`)
+            } catch {
+              filePaths.push(`${e.name}/_sentinel`)
+            }
+          } else {
+            filePaths.push(e.name)
           }
-          return e.name
-        })
+        }
         const kind = detectBundleKind({ filePaths })
-        results.push({
-          path: bundlePath,
-          name: entry.name,
-          kind,
-        })
+        // 실제 하네스 번들만 노출 — 단일 스킬/임의 폴더 노이즈 제거.
+        if (kind !== 'bundle') continue
+        results.push({ path: bundlePath, name: entry.name, kind })
       } catch {
         // 해당 항목 스킵
       }
