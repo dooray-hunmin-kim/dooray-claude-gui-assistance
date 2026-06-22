@@ -761,6 +761,238 @@ describe('AIService.explainHarness — Mac/Windows 플랫폼 분기', () => {
   })
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Harness Studio — proposeEdit
+// CLAUDE.md 함정 #2: Mac/Windows 양쪽 platform 분기 테스트 필수
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('AIService.proposeEdit — AI 편집 제안', () => {
+  const TARGET_FILES = [
+    { relPath: '_agents/security-reviewer.md', content: '---\nname: security-reviewer\nmodel: sonnet\n---\n# 보안 검토자' },
+    { relPath: '_agents/architect.md', content: '---\nname: architect\nmodel: opus\n---\n# 아키텍트' }
+  ]
+
+  const PROPOSE_OK_RESULT = JSON.stringify({
+    proposals: [
+      { relPath: '_agents/security-reviewer.md', newContent: '---\nname: security-reviewer\nmodel: opus\n---\n# 보안 검토자', rationale: 'model 을 opus 로 변경' }
+    ]
+  })
+
+  it('Mac — system prompt 가 --append-system-prompt 로 argv 에 포함된다 (캐싱 보존)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.proposeEdit('보안검토자를 opus 로', TARGET_FILES)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--append-system-prompt')).toBeGreaterThanOrEqual(0)
+      emitResult(PROPOSE_OK_RESULT)
+      const result = await promise
+      expect(result.proposals).toHaveLength(1)
+      expect(result.proposals[0].relPath).toBe('_agents/security-reviewer.md')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('Windows — system prompt 가 argv 에서 빠지고 stdin 에 합쳐진다 (cmd escape 회피)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.proposeEdit('보안검토자를 opus 로', TARGET_FILES)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      // Windows: --append-system-prompt 와 그 값이 argv 에 없어야 함
+      expect(argv.indexOf('--append-system-prompt')).toBe(-1)
+      // stdin 에 시스템 지시 prefix 가 포함되어야 함
+      const stdinCalls = (lastSpawn!.stdin.write as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      expect(stdinCalls.length).toBeGreaterThan(0)
+      const stdinText = stdinCalls[0][0] as string
+      expect(stdinText).toContain('[시스템 지시 — 반드시 준수]')
+      emitResult(PROPOSE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('정상 JSON 응답 → proposals 반환', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('보안검토자를 opus 로', TARGET_FILES)
+    await Promise.resolve()
+    emitResult(PROPOSE_OK_RESULT)
+    const result = await promise
+    expect(result.proposals).toHaveLength(1)
+    expect(result.proposals[0].relPath).toBe('_agents/security-reviewer.md')
+    expect(result.proposals[0].newContent).toContain('model: opus')
+    expect(result.proposals[0].rationale).toContain('opus')
+  })
+
+  it('JSON 추출 실패 → 빈 proposals 반환 (throw 금지, degradation)', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('보안검토자를 수정', TARGET_FILES)
+    await Promise.resolve()
+    emitResult('JSON 없는 평문 응답입니다. 수정을 제안할 수 없습니다.')
+    const result = await promise
+    expect(result.proposals).toEqual([])
+  })
+
+  it('proposals 필드 파싱 실패 → 빈 proposals 반환', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('수정', TARGET_FILES)
+    await Promise.resolve()
+    // proposals 키 없는 JSON
+    emitResult(JSON.stringify({ result: 'ok', changes: [] }))
+    const result = await promise
+    expect(result.proposals).toEqual([])
+  })
+
+  it('화이트리스트 밖 relPath 드롭 — 목록에 없는 파일은 결과에서 제거', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('수정', TARGET_FILES)
+    await Promise.resolve()
+    // AI 가 화이트리스트 밖 파일도 포함해 반환한 케이스
+    emitResult(JSON.stringify({
+      proposals: [
+        { relPath: '_agents/security-reviewer.md', newContent: '수정됨', rationale: '변경' },
+        { relPath: '_core/triage.md', newContent: '침해 시도', rationale: '화이트리스트 밖' },  // 드롭 대상
+        { relPath: '../../etc/passwd', newContent: '탈출 시도', rationale: '경로 탈출' }  // 드롭 대상
+      ]
+    }))
+    const result = await promise
+    // 화이트리스트 안에 있는 것만 남아야 함
+    expect(result.proposals).toHaveLength(1)
+    expect(result.proposals[0].relPath).toBe('_agents/security-reviewer.md')
+  })
+
+  it('모든 proposals 가 화이트리스트 밖이면 빈 배열 반환', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('수정', TARGET_FILES)
+    await Promise.resolve()
+    emitResult(JSON.stringify({
+      proposals: [
+        { relPath: 'outside/file.md', newContent: '침해', rationale: '무관한 파일' }
+      ]
+    }))
+    const result = await promise
+    expect(result.proposals).toEqual([])
+  })
+
+  it('입력 40KB 초과 → 에러 throw', async () => {
+    const svc = new AIService()
+    const bigContent = 'X'.repeat(41 * 1024)  // 41KB
+    await expect(
+      svc.proposeEdit('수정', [{ relPath: 'big.md', content: bigContent }])
+    ).rejects.toThrow(/40KB|상한/)
+  })
+
+  it('입력 40KB 이하 → 에러 없음', async () => {
+    const svc = new AIService()
+    const okContent = 'X'.repeat(10 * 1024)  // 10KB
+    const promise = svc.proposeEdit('수정', [{ relPath: 'ok.md', content: okContent }])
+    await Promise.resolve()
+    emitResult(JSON.stringify({ proposals: [] }))
+    const result = await promise
+    expect(result.proposals).toEqual([])
+  })
+
+  it('noTools 옵션 적용 — argv 에 --disallowedTools 포함 (도구 차단 확인)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.proposeEdit('수정', TARGET_FILES)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--disallowedTools')).toBeGreaterThanOrEqual(0)
+      emitResult(PROPOSE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('기본 모델은 sonnet', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.proposeEdit('수정', TARGET_FILES)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      const mIdx = argv.indexOf('--model')
+      expect(mIdx).toBeGreaterThanOrEqual(0)
+      expect(argv[mIdx + 1]).toBe('sonnet')
+      emitResult(PROPOSE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('harnessEdit 모델 설정이 적용된다 — opus 로 변경', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      svc.setModelConfig({ harnessEdit: 'opus' } as never)
+      const promise = svc.proposeEdit('수정', TARGET_FILES)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      const mIdx = argv.indexOf('--model')
+      expect(mIdx).toBeGreaterThanOrEqual(0)
+      expect(argv[mIdx + 1]).toBe('opus')
+      emitResult(PROPOSE_OK_RESULT)
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('빈 proposals 배열 응답 → 빈 proposals 반환 (정상 케이스)', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('변경 불필요', TARGET_FILES)
+    await Promise.resolve()
+    emitResult(JSON.stringify({ proposals: [] }))
+    const result = await promise
+    expect(result.proposals).toEqual([])
+  })
+
+  it('잘린 JSON — balanceBrackets 복구 후 파싱', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('수정', TARGET_FILES)
+    await Promise.resolve()
+    // trailing comma 포함 손상 JSON — balanceBrackets 이 복구해야 함
+    const truncated = '{"proposals":[{"relPath":"_agents/security-reviewer.md","newContent":"수정됨","rationale":"변경",'
+    emitResult(truncated)
+    const result = await promise
+    // 복구 성공 또는 degradation — 어느 쪽도 throw 없어야 함
+    expect(result).toBeDefined()
+    expect(Array.isArray(result.proposals)).toBe(true)
+  })
+
+  it('rationale 없는 proposal → 빈 문자열 rationale 로 정규화', async () => {
+    const svc = new AIService()
+    const promise = svc.proposeEdit('수정', TARGET_FILES)
+    await Promise.resolve()
+    emitResult(JSON.stringify({
+      proposals: [
+        { relPath: '_agents/security-reviewer.md', newContent: '수정됨' }  // rationale 없음
+      ]
+    }))
+    const result = await promise
+    expect(result.proposals).toHaveLength(1)
+    expect(result.proposals[0].rationale).toBe('')
+  })
+})
+
 describe('balanceBrackets — 잘린 JSON 복구', () => {
   it('정상 JSON 은 그대로 파싱된다', () => {
     const s = '{"a":[1,2],"b":{"c":3}}'

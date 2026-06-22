@@ -8,6 +8,8 @@ import type { DoorayTask, DoorayCalendarEvent } from '../../shared/types/dooray'
 import type { AIBriefing, AIReport, AIProgressEvent, AIModelName, AIModelConfig } from '../../shared/types/ai'
 import type { HarnessModel, HarnessTriage, DryRunResult } from '../../shared/types/harness'
 import { buildNormalizeSystemPrompt, buildNormalizeUserPrompt, buildEstimateSystemPrompt, buildEstimateUserPrompt } from '../harness/normalizePrompt'
+import { buildEditSystemPrompt, buildEditUserPrompt } from './harnessEditPrompt'
+import type { AIEditProposal } from '../../shared/types/harness-edit'
 
 interface ClaudeCliResult {
   type: string
@@ -522,7 +524,7 @@ ${stdinPrompt ?? ''}`
       // harness 계열 feature(harnessNormalize/harnessEstimate/harnessExplain) 는
       // stdin 에 번들 원문/사용자 입력이 포함되므로 promptHead 평문 로깅 제거.
       // platform/argv 진단은 유지 (CLAUDE.md 함정 #4).
-      const HARNESS_FEATURES = new Set(['harnessNormalize', 'harnessEstimate', 'harnessExplain'])
+      const HARNESS_FEATURES = new Set(['harnessNormalize', 'harnessEstimate', 'harnessExplain', 'harnessEdit'])
       const isHarnessFeature = options.feature !== undefined && HARNESS_FEATURES.has(options.feature)
       const diagPrompt = isHarnessFeature
         ? `[redacted: ${options.feature} promptLength=${stdinPrompt?.length ?? 0}]`
@@ -1623,6 +1625,130 @@ ${topic}
     )
 
     return (result.result || '').trim() || `"${topic}" 에 대한 설명을 생성하지 못했습니다.`
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Harness Studio — AI 편집 제안
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * 자연어 명령 + 대상 파일 원문 → AI 파일 변경안 제안 (자동 쓰기 없음).
+   *
+   * 반환된 proposals 는 사용자 승인 후 HarnessDraft 에 반영되며
+   * 직접 파일에 쓰이지 않는다 (arch §5, ADR-edit-001).
+   *
+   * 플랫폼 분기는 runClaudeStream 내부에서 처리된다.
+   * 이 메서드는 buildArgs + pickModel + runWithProgress 만 재사용하며
+   * runClaudeStream 분기 코드를 수정/중복 구현하지 않는다 (CLAUDE.md 함정 #1·#3).
+   *
+   * Windows 에서는 큰 system prompt 가 stdin 으로 합쳐지므로
+   * 양쪽 플랫폼 테스트가 반드시 필요하다 (CLAUDE.md 함정 #2).
+   *
+   * JSON 파싱 실패 시 throw 하지 않고 빈 proposals 를 반환한다 (degradation).
+   * AI 가 화이트리스트 밖 relPath 를 제안하면 해당 항목은 드롭된다.
+   *
+   * @param command - 사용자 자연어 명령 (예: "보안검토자를 opus 모델로 바꿔줘")
+   * @param targetFiles - 편집 대상 파일 목록 ({ relPath, content } 배열). 합산 40KB 상한.
+   * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @returns proposals 배열. 파싱 실패/화이트리스트 미해당 항목은 드롭.
+   * @throws 입력 합산 크기가 MAX_AI_EDIT_BYTES(40KB) 초과 시 에러.
+   */
+  async proposeEdit(
+    command: string,
+    targetFiles: { relPath: string; content: string }[],
+    requestId?: string
+  ): Promise<{ proposals: AIEditProposal[] }> {
+    /** 입력 총량 상한 — 40KB 초과 시 에러 (토큰 폭발 + 유출 최소화, arch §5.1) */
+    const MAX_AI_EDIT_BYTES = 40 * 1024
+    const totalBytes = targetFiles.reduce((sum, f) => sum + f.content.length, 0)
+    if (totalBytes > MAX_AI_EDIT_BYTES) {
+      throw new Error(
+        `AI 편집 대상 파일 합산 크기(${Math.round(totalBytes / 1024)}KB)가 상한(40KB)을 초과합니다. ` +
+        `대상 파일 수를 줄이거나 더 작은 파일만 선택하세요.`
+      )
+    }
+
+    const model = this.pickModel('harnessEdit', 'sonnet')
+    const systemPrompt = buildEditSystemPrompt()
+    const userPrompt = buildEditUserPrompt(command, targetFiles)
+
+    const args = buildArgs(userPrompt, {
+      model,
+      systemPrompt,
+      // 편집은 파일 전체 내용을 다루므로 normalizeHarness 보다는 작지만 여유있게 (arch §5.1)
+      maxBudget: '2.0',
+      effort: 'medium',
+      noTools: true  // 편집 제안은 순수 텍스트 변환 — 도구 불필요
+    })
+
+    // 편집은 파일 크기에 따라 소요 시간이 다를 수 있어 3분 허용 (normalizeHarness 10분보다는 짧게)
+    const result = await this.runWithProgress(
+      requestId,
+      'AI 편집 제안 생성 중...',
+      args,
+      { feature: 'harnessEdit', timeoutMs: 180000 }
+    )
+
+    // relPath 화이트리스트 — AI 가 화이트리스트 밖 파일을 제안해도 드롭 (arch §5.2, 함정 #2)
+    const whitelist = new Set(targetFiles.map((f) => f.relPath))
+
+    const raw = (result.result || '').trim()
+    // 마크다운 코드블록 제거 후 JSON 추출 (normalizeHarness 와 동일 패턴)
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+
+    // LLM JSON 관용 복구 (balanceBrackets 재사용 — normalizeHarness 와 동일)
+    const tryParseLenient = (text: string): { proposals?: unknown[] } | null => {
+      const attempts = [
+        text,
+        text.replace(/,(\s*[}\]])/g, '$1'),
+        balanceBrackets(text.replace(/,(\s*[}\]])/g, '$1'))
+      ]
+      for (const candidate of attempts) {
+        try {
+          return JSON.parse(candidate) as { proposals?: unknown[] }
+        } catch {
+          // 다음 복구 전략 시도
+        }
+      }
+      return null
+    }
+
+    if (!jsonMatch) {
+      // JSON 추출 실패 — throw 금지, degradation (빈 proposals 반환)
+      console.warn('[AIService.proposeEdit] JSON 추출 실패 — 빈 proposals 반환. 원본 앞 400자:', raw.substring(0, 400))
+      return { proposals: [] }
+    }
+
+    const parsed = tryParseLenient(jsonMatch[0])
+    if (!parsed || !Array.isArray(parsed.proposals)) {
+      console.warn('[AIService.proposeEdit] proposals 파싱 실패 — 빈 proposals 반환.')
+      return { proposals: [] }
+    }
+
+    // 화이트리스트 교집합만 채택 — AI 가 범위 밖 파일을 반환하면 드롭 (arch §5.2)
+    const proposals: AIEditProposal[] = []
+    for (const item of parsed.proposals) {
+      if (
+        item !== null &&
+        typeof item === 'object' &&
+        typeof (item as Record<string, unknown>).relPath === 'string' &&
+        typeof (item as Record<string, unknown>).newContent === 'string'
+      ) {
+        const proposal = item as { relPath: string; newContent: string; rationale?: string }
+        if (!whitelist.has(proposal.relPath)) {
+          console.warn(`[AIService.proposeEdit] 화이트리스트 밖 relPath 드롭: ${proposal.relPath}`)
+          continue
+        }
+        proposals.push({
+          relPath: proposal.relPath,
+          newContent: proposal.newContent,
+          rationale: typeof proposal.rationale === 'string' ? proposal.rationale : ''
+        })
+      }
+    }
+
+    return { proposals }
   }
 
   private saveAIRecommendation(result: import('../../shared/types/ai-recommend').AIRecommendResult): void {
