@@ -260,7 +260,10 @@ async function walkDirectory(
     if (IGNORE_PATTERNS.some((p) => p.test(entry.name))) continue
 
     const absPath = path.join(currentPath, entry.name)
-    const relPath = path.relative(rootPath, absPath)
+    // 상대경로는 항상 POSIX 구분자('/')로 정규화한다.
+    // bundleDetect/agent·템플릿 탐지가 전부 '/' 패턴(^_core/, /SKILL.md, _agents/ 등)으로
+    // 매칭하므로, Windows 의 '\' 구분자를 그대로 두면 bundle 오판·스텁 누락이 발생한다(크로스플랫폼 회귀).
+    const relPath = path.relative(rootPath, absPath).split(path.sep).join('/')
 
     if (entry.isDirectory()) {
       await walkDirectory(rootPath, absPath, relativePaths, statsMap, depth + 1)
