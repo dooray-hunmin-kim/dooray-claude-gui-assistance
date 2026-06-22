@@ -163,6 +163,13 @@ export class HarnessEditService {
   ): Promise<{ content: string; sourceMap?: AgentSourceMap }> {
     const bundleRoot = await this.verifiedBundleRoot(bundlePath)
 
+    // 센티넬: sourceMap 전용 요청 — 실제 파일이 아니라 정적 스캔의 AgentSourceMap 을 반환.
+    // (편집 모드 진입 시 구조화 폼이 '편집 가능 필드' 를 판정하는 데 사용)
+    if (relPath === '.harness-sourcemap') {
+      const sourceMap = await this.harnessService.getSourceMap(bundleRoot)
+      return { content: '', sourceMap }
+    }
+
     // 읽기 대상 파일도 bundleRoot 하위인지 검증 (경로 탈출 방어)
     const absTarget = path.join(bundleRoot, relPath)
     let realTarget: string

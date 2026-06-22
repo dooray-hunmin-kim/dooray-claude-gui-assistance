@@ -164,6 +164,18 @@ export class HarnessService {
     return summary
   }
 
+  /**
+   * 번들의 AgentSourceMap(에이전트 frontmatter 필드 → 출처 파일 인덱스)을 반환한다.
+   * 편집 모드의 구조화 폼이 "어느 파일을 고칠지" 판정하는 데 사용한다.
+   * scan 을 1회 수행해 정적으로 추출(AI 없음).
+   *
+   * @param bundlePath - 번들 루트 절대경로
+   */
+  async getSourceMap(bundlePath: string): Promise<import('../../shared/types/harness-edit').AgentSourceMap> {
+    const raw = await this.scanner.scan(bundlePath)
+    return raw.agentSourceMap
+  }
+
   // ─────────────────────────────────────────────
   // normalize — 캐시 hit/miss + AI 정규화
   // ─────────────────────────────────────────────
