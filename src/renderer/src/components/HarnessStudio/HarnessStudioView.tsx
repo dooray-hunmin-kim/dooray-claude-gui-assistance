@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Workflow, Plus, History, Clock, RotateCcw, Download, Stethoscope, GitCompare } from 'lucide-react'
-import type { HarnessModel, CachedHarnessEntry } from '@shared/types/harness'
+import { Workflow, Plus, History, Clock, RotateCcw, Download, Stethoscope, GitCompare, Search, Package } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import type { HarnessModel, CachedHarnessEntry, DiscoveredHarness } from '@shared/types/harness'
 import Button from '@/components/common/ds/Button'
 import Chip from '@/components/common/ds/Chip'
 import SegTabs from '@/components/common/ds/SegTabs'
@@ -57,16 +58,39 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
   const [cachedList, setCachedList] = useState<CachedHarnessEntry[] | null>(null)
   const [cachedLoading, setCachedLoading] = useState(false)
   const [cachedError, setCachedError] = useState<string | null>(null)
+  // 자동 발견: 첫 진입 시 ~/.claude/skills 를 버튼 없이 자동 스캔한 결과.
+  const [discovered, setDiscovered] = useState<DiscoveredHarness[] | null>(null)
+  // 정규화(AI) 진행 중인 경로 — 발견/캐시 항목을 열 때 로딩 오버레이 표시용.
+  const [opening, setOpening] = useState<string | null>(null)
 
-  // 최근 목록 로드
-  const loadCached = useCallback(async () => {
+  // 랜딩 진입 시 최근 캐시 + 자동 발견을 함께 로드한다(발견은 버튼 없이 자동).
+  const loadLanding = useCallback(async () => {
     setCachedLoading(true)
     setCachedError(null)
     try {
-      const list = await window.api.harness.listCached()
-      setCachedList(list)
+      const api = window.api?.harness
+      // api 미주입(테스트/초기화 전) 시 빈 상태로 안전 강등 — 동기 TypeError 방지.
+      if (!api) {
+        setCachedList([])
+        setDiscovered([])
+        return
+      }
+      // 캐시와 발견을 병렬 로드. 발견 실패는 치명적이지 않으므로 빈 배열로 강등.
+      const [cachedRes, discoveredRes] = await Promise.allSettled([
+        api.listCached(),
+        api.discover()
+      ])
+      if (cachedRes.status === 'fulfilled') {
+        setCachedList(cachedRes.value)
+      } else {
+        setCachedError(cachedRes.reason instanceof Error ? cachedRes.reason.message : String(cachedRes.reason))
+        setCachedList([])
+      }
+      setDiscovered(discoveredRes.status === 'fulfilled' ? discoveredRes.value : [])
     } catch (e) {
       setCachedError(e instanceof Error ? e.message : String(e))
+      setCachedList([])
+      setDiscovered([])
     } finally {
       setCachedLoading(false)
     }
@@ -74,17 +98,21 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
 
   useEffect(() => {
     if (!model && !wizardOpen) {
-      void loadCached()
+      void loadLanding()
     }
-  }, [model, wizardOpen, loadCached])
+  }, [model, wizardOpen, loadLanding])
 
-  // 캐시에서 바로 재오픈 (normalize 캐시 hit → 0초)
-  const handleCachedOpen = useCallback(async (entry: CachedHarnessEntry) => {
+  // 경로를 정규화해 모델을 연다(캐시 hit 이면 즉시, miss 면 AI 정규화).
+  const openPath = useCallback(async (path: string) => {
+    setOpening(path)
+    setCachedError(null)
     try {
-      const normalized = await window.api.harness.normalize({ path: entry.path })
+      const normalized = await window.api.harness.normalize({ path })
       setModel(normalized)
     } catch (e) {
       setCachedError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setOpening(null)
     }
   }, [])
 
@@ -103,8 +131,8 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
     setActiveTab('flow')
     setDryRunHighlight(undefined)
     setOverlayEnabled(false)
-    void loadCached()
-  }, [loadCached])
+    void loadLanding()
+  }, [loadLanding])
 
   // ── 위저드 열림 ──
   if (wizardOpen) {
@@ -139,27 +167,26 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
           </div>
         </div>
 
-        {/* 최근 목록 또는 빈 상태 */}
+        {/* 최근 목록 + 자동 발견 (둘 다 자동 로드) */}
         <div className="flex-1 overflow-y-auto p-4">
-          {cachedLoading && <LoadingView label="최근 목록 로드 중..." />}
-          {cachedError && (
-            <ErrorView
-              title="목록 로드 실패"
-              body={cachedError}
-              onRetry={loadCached}
-            />
+          {opening && (
+            <LoadingView label={`하네스 정규화 중... (${opening.split('/').pop() ?? ''})`} />
           )}
-          {!cachedLoading && !cachedError && cachedList !== null && (
-            cachedList.length === 0 ? (
+          {!opening && cachedLoading && <LoadingView label="하네스 탐색 중..." />}
+          {!opening && cachedError && (
+            <ErrorView title="로드 실패" body={cachedError} onRetry={loadLanding} />
+          )}
+          {!opening && !cachedLoading && cachedList !== null && discovered !== null && (
+            cachedList.length === 0 && discovered.length === 0 ? (
               <div className="flex items-center justify-center h-full">
                 <EmptyView
                   icon={Workflow}
-                  title="가져온 하네스가 없습니다"
+                  title="하네스를 찾지 못했습니다"
                   body={
                     <span className="text-center">
-                      bmad 번들 폴더를 가져오면<br />
-                      에이전트 구조·레벨 체인·게이트·산출물을<br />
-                      한눈에 시각화합니다.
+                      ~/.claude/skills 에서 bmad 번들을 찾지 못했습니다.<br />
+                      폴더를 직접 가져오면 에이전트 구조·레벨 체인·게이트·<br />
+                      산출물을 한눈에 시각화합니다.
                     </span>
                   }
                   action={
@@ -175,20 +202,31 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
                 />
               </div>
             ) : (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                  <History size={13} className="text-[color:var(--text-secondary)]" />
-                  <span className="text-xs font-semibold text-[color:var(--text-secondary)] uppercase tracking-wider">
-                    최근 하네스
-                  </span>
-                </div>
-                {cachedList.map((entry) => (
-                  <CachedEntryCard
-                    key={entry.path}
-                    entry={entry}
-                    onOpen={() => void handleCachedOpen(entry)}
-                  />
-                ))}
+              <div className="flex flex-col gap-5">
+                {cachedList.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <SectionLabel icon={History} text="최근 하네스" />
+                    {cachedList.map((entry) => (
+                      <CachedEntryCard
+                        key={entry.path}
+                        entry={entry}
+                        onOpen={() => void openPath(entry.path)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {discovered.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <SectionLabel icon={Search} text="발견된 하네스 (~/.claude/skills)" />
+                    {discovered.map((h) => (
+                      <DiscoveredEntryCard
+                        key={h.path}
+                        entry={h}
+                        onOpen={() => void openPath(h.path)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )
           )}
@@ -373,6 +411,49 @@ function CachedEntryCard({
           {formatRelativeTime(entry.cachedAt)}
         </span>
       </div>
+      <Button variant="secondary" size="xs">열기</Button>
+    </div>
+  )
+}
+
+/** 랜딩 섹션 라벨 (최근/발견 구분) */
+function SectionLabel({ icon: Icon, text }: { icon: LucideIcon; text: string }): JSX.Element {
+  return (
+    <div className="flex items-center gap-2">
+      <Icon size={13} className="text-[color:var(--text-secondary)]" />
+      <span className="text-xs font-semibold text-[color:var(--text-secondary)] uppercase tracking-wider">
+        {text}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * 자동 발견된 하네스 항목 카드.
+ * 클릭 시 해당 경로를 정규화해 연다(첫 정규화는 AI 호출로 시간이 걸릴 수 있음).
+ */
+function DiscoveredEntryCard({
+  entry,
+  onOpen
+}: {
+  entry: DiscoveredHarness
+  onOpen: () => void
+}): JSX.Element {
+  return (
+    <div
+      className="flex items-center gap-3 p-3 rounded-lg border border-[color:var(--bg-border)] bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-surface-hover)] cursor-pointer transition-colors"
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen() }}
+      aria-label={`${entry.name} 열기`}
+    >
+      <Package size={16} className="flex-none text-[color:var(--text-secondary)]" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-[color:var(--text-primary)] truncate">{entry.name}</p>
+        <p className="text-xs text-[color:var(--text-tertiary)] truncate">{entry.path}</p>
+      </div>
+      <span className="ds-chip neutral flex-none">{entry.kind}</span>
       <Button variant="secondary" size="xs">열기</Button>
     </div>
   )
