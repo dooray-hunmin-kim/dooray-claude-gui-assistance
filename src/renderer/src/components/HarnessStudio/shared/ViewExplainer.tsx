@@ -128,7 +128,7 @@ export function ViewExplainer({
             aria-expanded={explainOpen}
           >
             {explainOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            <span className="text-[10px]">AI 심화 설명 {explainOpen ? '접기' : '펼치기'}</span>
+            <span className="text-xs">AI 심화 설명 {explainOpen ? '접기' : '펼치기'}</span>
           </button>
           {explainOpen && (
             <div className="text-xs text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-2.5 border border-[color:var(--bg-border)] max-h-64 overflow-y-auto">

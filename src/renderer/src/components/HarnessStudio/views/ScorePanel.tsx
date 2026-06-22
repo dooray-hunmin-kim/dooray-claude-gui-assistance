@@ -119,7 +119,7 @@ export function ScorePanel({ model, sourcePath }: ScorePanelProps): JSX.Element 
   return (
     <div className="flex flex-col">
       <ViewExplainer
-        title="Score / 점수"
+        title="점수"
         howto={
           <span>
             이 하네스가 <strong>"고삐를 얼마나 잘 쥐는지"</strong> 6축으로 점수를 매긴 결과입니다.

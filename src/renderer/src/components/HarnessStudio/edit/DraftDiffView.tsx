@@ -42,7 +42,7 @@ function getMonacoLanguage(relPath: string): string {
 function originLabel(origin: DraftFileEdit['origin']): string {
   switch (origin) {
     case 'form': return '구조화 폼'
-    case 'raw': return 'raw 에디터'
+    case 'raw': return '원본 에디터'
     case 'ai': return 'AI 편집'
   }
 }
@@ -71,10 +71,17 @@ function FileDiffPanel({ relPath, edit, onRevert, monacoTheme }: FileDiffPanelPr
           ? 'border-[color:var(--c-orange-fg)]'
           : 'border-[color:var(--bg-border)]'
     }`}>
-      {/* 파일 헤더 */}
-      <div className={`flex items-center gap-2 px-3 py-2 ${
-        edit.stale ? 'bg-[color:var(--c-red-bg)]' : isShellFile ? 'bg-[color:var(--c-orange-bg)]' : 'bg-[color:var(--bg-surface)]'
-      }`}>
+      {/* 파일 헤더 — 전체 행이 펼치기/접기 클릭 타겟 */}
+      <div
+        className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none hover:brightness-95 transition-all ${
+          edit.stale ? 'bg-[color:var(--c-red-bg)]' : isShellFile ? 'bg-[color:var(--c-orange-bg)]' : 'bg-[color:var(--bg-surface)]'
+        }`}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v) } }}
+      >
         <FileText size={12} className="flex-none text-[color:var(--text-tertiary)]" />
         <span className="text-xs font-mono text-[color:var(--text-primary)] flex-1 truncate" title={relPath}>
           {relPath}
@@ -113,18 +120,14 @@ function FileDiffPanel({ relPath, edit, onRevert, monacoTheme }: FileDiffPanelPr
             variant="ghost"
             size="xs"
             leftIcon={<RotateCcw size={10} />}
-            onClick={() => onRevert(relPath)}
+            onClick={(e) => { e.stopPropagation(); onRevert(relPath) }}
             title="이 파일 변경 되돌리기"
           >
             되돌리기
           </Button>
-          <button
-            className="text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)] transition-colors"
-            onClick={() => setExpanded(!expanded)}
-            aria-label={expanded ? 'diff 접기' : 'diff 펼치기'}
-          >
+          <span className="text-[color:var(--text-tertiary)]" aria-hidden>
             {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          </button>
+          </span>
         </div>
       </div>
 

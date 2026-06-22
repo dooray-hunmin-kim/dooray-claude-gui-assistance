@@ -153,7 +153,7 @@ function AgentsDiffSection({ agents }: { agents: AgentDiff[] }): JSX.Element | n
                   <td className="py-2">
                     <div className="flex flex-wrap gap-1">
                       {a.changedFields.map((f) => (
-                        <span key={f} className="ds-chip sq yellow text-[10px]">{f}</span>
+                        <span key={f} className="ds-chip sq yellow text-xs">{f}</span>
                       ))}
                     </div>
                   </td>
@@ -522,7 +522,7 @@ export function CompareView({ model, cachedList }: CompareViewProps): JSX.Elemen
 
   const explainerNode = (
     <ViewExplainer
-      title="Compare / 비교"
+      title="비교"
       howto={
         <span>
           두 하네스의 구조 차이(diff)를 보여줍니다 — 추가/제거된 에이전트, 모델·레벨체인·게이트·점수 변화.

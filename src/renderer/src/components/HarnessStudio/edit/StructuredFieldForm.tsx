@@ -256,16 +256,26 @@ function ReadonlyFieldRow({ entry, onSelectFile }: Pick<FieldRowProps, 'entry' |
     ? entry.currentValue.join(', ')
     : entry.currentValue
 
+  const toggle = () => setCollapsed((v) => !v)
+
   return (
-    <div className="border border-[color:var(--bg-border)] rounded-lg bg-[color:var(--bg-surface)] p-3">
-      <div className="flex items-center justify-between gap-2">
+    <div className="border border-[color:var(--bg-border)] rounded-lg bg-[color:var(--bg-surface)]">
+      {/* 헤더 행 전체가 클릭 타겟 — 내부 인터랙티브 요소는 stopPropagation */}
+      <div
+        className="flex items-center justify-between gap-2 p-3 cursor-pointer select-none hover:bg-[color:var(--bg-surface-hover)] rounded-lg transition-colors"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        onClick={toggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
+      >
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           {entry.mode === 'lock' && <Lock size={11} className="text-[color:var(--text-tertiary)] flex-none" />}
           {entry.mode === 'ai' && <Wand2 size={11} className="text-[color:var(--c-violet-fg)] flex-none" />}
           {entry.mode === 'raw' && <FileCode size={11} className="text-[color:var(--text-tertiary)] flex-none" />}
           <span className="text-xs font-medium text-[color:var(--text-primary)] truncate">{entry.label}</span>
           <Chip tone={entry.mode === 'lock' ? 'neutral' : entry.mode === 'ai' ? 'violet' : 'neutral'} square>
-            {entry.mode === 'lock' ? '편집 불가' : entry.mode === 'ai' ? 'AI 전용' : 'raw'}
+            {entry.mode === 'lock' ? '편집 불가' : entry.mode === 'ai' ? 'AI 전용' : '원본 파일'}
           </Chip>
         </div>
         <div className="flex items-center gap-1 flex-none">
@@ -274,22 +284,21 @@ function ReadonlyFieldRow({ entry, onSelectFile }: Pick<FieldRowProps, 'entry' |
               variant="ghost"
               size="xs"
               leftIcon={<FileCode size={10} />}
-              onClick={() => onSelectFile(entry.target!.relPath)}
+              onClick={(e) => { e.stopPropagation(); onSelectFile(entry.target!.relPath) }}
             >
               파일 열기
             </Button>
           )}
-          <button
-            className="text-[color:var(--text-tertiary)] hover:text-[color:var(--text-primary)] transition-colors"
-            onClick={() => setCollapsed(!collapsed)}
-            aria-label={collapsed ? '펼치기' : '접기'}
+          <span
+            className="text-[color:var(--text-tertiary)]"
+            aria-hidden
           >
             {collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-          </button>
+          </span>
         </div>
       </div>
       {!collapsed && (
-        <div className="mt-2">
+        <div className="px-3 pb-3">
           <p className="text-xs text-[color:var(--text-secondary)] font-mono break-all">
             {currentDisplay || '(없음)'}
           </p>

@@ -48,9 +48,9 @@ function AgentNode({ data, selected }: NodeProps): JSX.Element {
         borderLeft: `4px solid ${tokens.accent}`,
         boxShadow: selected ? 'var(--ring-focus)' : '0 1px 2px rgba(0,0,0,0.25)',
         borderRadius: '8px',
-        padding: '8px 10px',
-        minWidth: '160px',
-        maxWidth: '200px',
+        padding: '10px 12px',
+        minWidth: '170px',
+        maxWidth: '220px',
         cursor: dimmed ? 'default' : 'pointer',
         transition: 'opacity 0.2s, box-shadow 0.15s'
       }}
@@ -106,7 +106,7 @@ function AgentNode({ data, selected }: NodeProps): JSX.Element {
       {/* 역할 설명 */}
       {role && (
         <p
-          className="text-[10px] leading-snug line-clamp-2"
+          className="text-xs leading-snug line-clamp-2"
           style={{ color: tokens.fg, opacity: 0.75 }}
           title={role}
         >

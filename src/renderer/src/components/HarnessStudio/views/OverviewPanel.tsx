@@ -55,14 +55,14 @@ function QuickStatCard({ label, count, icon, onNavigate, navigateLabel }: QuickS
     <Card className="flex flex-col gap-1.5 p-3">
       <div className="flex items-center gap-1.5 text-[color:var(--text-secondary)]">
         <span className="flex-none">{icon}</span>
-        <span className="text-[11px] font-medium">{label}</span>
+        <span className="text-xs font-medium">{label}</span>
       </div>
       <span className="text-2xl font-bold text-[color:var(--text-primary)] leading-none">
         {count}
       </span>
       {onNavigate && (
         <button
-          className="text-[10px] text-[color:var(--clauday-blue)] hover:underline text-left flex items-center gap-0.5 mt-0.5"
+          className="text-xs text-[color:var(--clauday-blue)] hover:underline text-left flex items-center gap-0.5 mt-0.5"
           onClick={onNavigate}
         >
           {navigateLabel ?? '자세히 보기'}
@@ -161,7 +161,7 @@ function AiExplainSection({ sourcePath }: { sourcePath: string }): JSX.Element {
             aria-expanded={expanded}
           >
             {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            <span className="text-[10px]">{expanded ? '접기' : '펼치기'}</span>
+            <span className="text-xs">{expanded ? '접기' : '펼치기'}</span>
           </button>
           {expanded && (
             <div className="text-xs text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-3 border border-[color:var(--bg-border)] max-h-80 overflow-y-auto">
@@ -235,28 +235,28 @@ export function OverviewPanel({ model, sourcePath, onNavigate }: OverviewPanelPr
             count={model.agents.length}
             icon={<Users size={12} />}
             onNavigate={onNavigate ? () => onNavigate('skills') : undefined}
-            navigateLabel="Skills 보기"
+            navigateLabel="스킬·블록 보기"
           />
           <QuickStatCard
             label="레벨"
             count={model.levels.length}
             icon={<GitBranch size={12} />}
             onNavigate={onNavigate ? () => onNavigate('flow') : undefined}
-            navigateLabel="Flow 보기"
+            navigateLabel="흐름 보기"
           />
           <QuickStatCard
             label="게이트"
             count={gateCount}
             icon={<ShieldCheck size={12} />}
             onNavigate={onNavigate ? () => onNavigate('gates') : undefined}
-            navigateLabel="Gates 보기"
+            navigateLabel="게이트 보기"
           />
           <QuickStatCard
             label="산출물"
             count={model.artifacts.length}
             icon={<Package size={12} />}
             onNavigate={onNavigate ? () => onNavigate('artifacts') : undefined}
-            navigateLabel="Artifacts 보기"
+            navigateLabel="산출물 보기"
           />
           {totalScore !== undefined && (
             <QuickStatCard
@@ -264,7 +264,7 @@ export function OverviewPanel({ model, sourcePath, onNavigate }: OverviewPanelPr
               count={totalScore}
               icon={<BarChart2 size={12} />}
               onNavigate={onNavigate ? () => onNavigate('score') : undefined}
-              navigateLabel="Score 보기"
+              navigateLabel="점수 보기"
             />
           )}
         </div>
@@ -291,7 +291,7 @@ export function OverviewPanel({ model, sourcePath, onNavigate }: OverviewPanelPr
                 key={i}
                 className="flex items-start gap-3 p-3 rounded-lg border border-[color:var(--bg-border)] bg-[color:var(--bg-surface)]"
               >
-                <span className="flex-none w-6 h-6 rounded-full bg-[color:var(--bg-primary)] border border-[color:var(--bg-border)] text-[10px] font-semibold text-[color:var(--text-secondary)] flex items-center justify-center">
+                <span className="flex-none w-6 h-6 rounded-full bg-[color:var(--bg-primary)] border border-[color:var(--bg-border)] text-xs font-semibold text-[color:var(--text-secondary)] flex items-center justify-center">
                   {i + 1}
                 </span>
                 <p className="text-sm text-[color:var(--text-primary)] leading-relaxed flex-1 min-w-0">
@@ -311,10 +311,10 @@ export function OverviewPanel({ model, sourcePath, onNavigate }: OverviewPanelPr
 
         {onNavigate && (
           <button
-            className="mt-2 text-[11px] text-[color:var(--clauday-blue)] hover:underline flex items-center gap-0.5"
+            className="mt-2 text-xs text-[color:var(--clauday-blue)] hover:underline flex items-center gap-0.5"
             onClick={() => onNavigate('flow')}
           >
-            Flow Canvas에서 그래프로 보기 <ArrowRight size={9} />
+            흐름 캔버스에서 그래프로 보기 <ArrowRight size={9} />
           </button>
         )}
       </section>

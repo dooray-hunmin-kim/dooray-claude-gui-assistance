@@ -218,7 +218,7 @@ export function EditPanel({
           onClick={() => { void handleCheckDiff() }}
           disabled={!hasAnyEdits || diffLoading}
         >
-          {diffLoading ? '대조 중...' : `Diff${draftCount > 0 ? ` (${draftCount})` : ''}`}
+          {diffLoading ? '대조 중...' : `변경 대조${draftCount > 0 ? ` (${draftCount})` : ''}`}
         </Button>
         <Button
           variant={activeView === 'backup' ? 'secondary' : 'ghost'}

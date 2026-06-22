@@ -479,7 +479,7 @@ function TimelineCard({
         {timeline.map((step, idx) => (
           <div key={step.step} className="flex items-center gap-2">
             {/* 단계 번호 */}
-            <span className="flex-none w-5 h-5 rounded-full bg-[color:var(--bg-primary)] border border-[color:var(--bg-border)] text-[10px] font-semibold text-[color:var(--text-secondary)] flex items-center justify-center">
+            <span className="flex-none w-5 h-5 rounded-full bg-[color:var(--bg-primary)] border border-[color:var(--bg-border)] text-xs font-semibold text-[color:var(--text-secondary)] flex items-center justify-center">
               {step.step}
             </span>
 
@@ -494,7 +494,7 @@ function TimelineCard({
                     {agentId}
                   </Chip>
                   {step.parallel && aIdx < step.agents.length - 1 && (
-                    <span className="text-[10px] text-[color:var(--text-tertiary)]">∥</span>
+                    <span className="text-xs text-[color:var(--text-tertiary)]">∥</span>
                   )}
                 </div>
               ))}
@@ -551,7 +551,7 @@ function MetricsCard({ result }: { result: DryRunResult }): JSX.Element {
           value={formatRelativeCost(result.estCostRel)}
         />
       </div>
-      <p className="text-[10px] text-[color:var(--text-tertiary)] mt-0.5">
+      <p className="text-xs text-[color:var(--text-tertiary)] mt-0.5">
         L0 기준값 = 1.0×. 절대 수치가 아닌 상대값으로, 참고용입니다.
       </p>
     </div>
@@ -571,7 +571,7 @@ function MetricItem({
     <div className="flex flex-col gap-1 p-2 rounded-md bg-[color:var(--bg-primary)] border border-[color:var(--bg-border)]">
       <div className="flex items-center gap-1.5 text-[color:var(--text-tertiary)]">
         {icon}
-        <span className="text-[10px] font-medium">{label}</span>
+        <span className="text-xs font-medium">{label}</span>
       </div>
       <span className="text-sm font-semibold text-[color:var(--text-primary)]">{value}</span>
     </div>

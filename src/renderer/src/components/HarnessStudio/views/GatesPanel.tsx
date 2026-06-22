@@ -80,8 +80,9 @@ export function GatesPanel({ model, sourcePath }: GatesPanelProps): JSX.Element 
           <span>
             페이즈별로 무엇을 강제 차단하는지 보여줍니다.{' '}
             <strong>규칙코드</strong>는 실패 조건 식별자이고,{' '}
-            <strong className="text-[color:var(--c-red-fg)]">blocking=true</strong>는 실제 진행을 막는 차단입니다.
-            Hooks는 자동 실행되는 강제 트리거를 나타냅니다.
+            <strong className="text-[color:var(--c-red-fg)]">차단(blocking)</strong>은 실제 진행을 막는 게이트이고,{' '}
+            <strong>경고(non-blocking)</strong>는 진행은 가능하지만 주의가 필요한 게이트입니다.
+            훅(Hooks)은 자동 실행되는 강제 트리거를 나타냅니다.
           </span>
         }
         topic="이 하네스의 게이트와 강제 메커니즘을 설명"
@@ -129,7 +130,7 @@ export function GatesPanel({ model, sourcePath }: GatesPanelProps): JSX.Element 
               게이트 규칙
             </h2>
             {blockingGates.length > 0 && (
-              <Chip tone="red" square>{blockingGates.length}개 차단</Chip>
+              <Chip tone="red" square>{blockingGates.length}개 차단(blocking)</Chip>
             )}
             {nonBlockingGates.length > 0 && (
               <Chip tone="neutral" square>{nonBlockingGates.length}개 경고</Chip>
@@ -151,7 +152,7 @@ export function GatesPanel({ model, sourcePath }: GatesPanelProps): JSX.Element 
                     <span className="text-sm font-semibold text-[color:var(--text-primary)] font-mono">
                       {gate.phase}
                     </span>
-                    {gate.blocking && <Chip tone="red" square>blocking</Chip>}
+                    {gate.blocking && <Chip tone="red" square>차단</Chip>}
                     {ruleGroups.map((g) =>
                       g.codes.map((code) => (
                         <Chip key={code} tone="violet" square>{code}</Chip>
@@ -172,7 +173,7 @@ export function GatesPanel({ model, sourcePath }: GatesPanelProps): JSX.Element 
                       {gate.ruleDetails.map((d) => (
                         <div key={d.code} className="flex items-start gap-2">
                           <Chip tone="violet" square>{d.code}</Chip>
-                          <span className="text-[11px] text-[color:var(--text-tertiary)] leading-relaxed flex-1 min-w-0">
+                          <span className="text-xs text-[color:var(--text-tertiary)] leading-relaxed flex-1 min-w-0">
                             {d.message}
                           </span>
                         </div>

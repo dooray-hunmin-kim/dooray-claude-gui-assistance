@@ -70,33 +70,36 @@ function CheckCard({ check }: { check: CheckResult }): JSX.Element {
   const tone = severityChipTone(check.severity)
 
   return (
-    <Card className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-2">
+    <Card className="flex flex-col gap-1.5 overflow-hidden p-0">
+      {/* 헤더 — check.items 있을 때 전체 행이 클릭 타겟 */}
+      <div
+        className={`flex items-center gap-2 p-3 ${check.items.length > 0 ? 'cursor-pointer select-none hover:bg-[color:var(--bg-surface-hover)] transition-colors' : ''}`}
+        role={check.items.length > 0 ? 'button' : undefined}
+        tabIndex={check.items.length > 0 ? 0 : undefined}
+        aria-expanded={check.items.length > 0 ? expanded : undefined}
+        onClick={check.items.length > 0 ? () => setExpanded((v) => !v) : undefined}
+        onKeyDown={check.items.length > 0 ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v) } } : undefined}
+      >
         <SeverityIcon severity={check.severity} size={13} />
         <span className="text-sm font-medium text-[color:var(--text-primary)] flex-1">
           {check.title}
         </span>
         <Chip tone={tone} square>{check.severity}</Chip>
         {check.items.length > 0 && (
-          <button
-            className="flex-none text-[color:var(--text-tertiary)] hover:text-[color:var(--text-secondary)] transition-colors"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            aria-label={expanded ? '접기' : '펼치기'}
-          >
+          <span className="flex-none text-[color:var(--text-tertiary)]" aria-hidden>
             {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
+          </span>
         )}
       </div>
 
-      <p className="text-xs text-[color:var(--text-secondary)] leading-relaxed">
+      <p className="text-xs text-[color:var(--text-secondary)] leading-relaxed px-3 pb-2">
         {check.detail}
       </p>
 
       {expanded && check.items.length > 0 && (
-        <div className="flex flex-wrap gap-1 pt-1 border-t border-[color:var(--bg-border)]">
+        <div className="flex flex-wrap gap-1 pt-1 pb-3 px-3 border-t border-[color:var(--bg-border)]">
           {check.items.map((item) => (
-            <span key={item} className="ds-chip sq neutral font-mono text-[10px]">
+            <span key={item} className="ds-chip sq neutral font-mono text-xs">
               {item}
             </span>
           ))}
@@ -198,7 +201,7 @@ export function DoctorPanel({ model, sourcePath }: DoctorPanelProps): JSX.Elemen
   return (
     <div className="flex flex-col">
       <ViewExplainer
-        title="Doctor / 구조 점검"
+        title="진단 / 구조 점검"
         howto={
           <span>
             AI 없이 하네스 구조의 정합성을 자동 점검합니다 (저자 셀프-진단용).

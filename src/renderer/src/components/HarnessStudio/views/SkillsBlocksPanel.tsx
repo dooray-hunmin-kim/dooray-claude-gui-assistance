@@ -63,9 +63,16 @@ function AgentRoleCard({ agent, provenance }: { agent: HarnessAgent; provenance:
   const writesSource = provenance[`agents.${agent.id}.writes`] ?? 'ai'
 
   return (
-    <Card className="flex flex-col gap-2">
-      {/* 헤더 */}
-      <div className="flex items-center gap-2">
+    <Card className="flex flex-col gap-2 overflow-hidden p-0">
+      {/* 헤더 — 전체 행이 펼치기/접기 클릭 타겟 */}
+      <div
+        className="flex items-center gap-2 p-3 cursor-pointer select-none hover:bg-[color:var(--bg-surface-hover)] transition-colors"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v) } }}
+      >
         <User size={13} className="text-[color:var(--text-secondary)] flex-none" />
         <span className="text-sm font-semibold text-[color:var(--text-primary)] flex-1 min-w-0 truncate">
           {agent.displayName || agent.id}
@@ -74,19 +81,14 @@ function AgentRoleCard({ agent, provenance }: { agent: HarnessAgent; provenance:
         {agent.phaseClass && (
           <Chip tone="neutral" square>{phaseClassLabel(agent.phaseClass)}</Chip>
         )}
-        <button
-          className="flex-none text-[color:var(--text-tertiary)] hover:text-[color:var(--text-secondary)] transition-colors"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          aria-label={expanded ? '접기' : '펼치기'}
-        >
+        <span className="flex-none text-[color:var(--text-tertiary)]" aria-hidden>
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        </button>
+        </span>
       </div>
 
       {/* 역할 설명 */}
       {agent.role && (
-        <div className="flex items-start gap-1.5">
+        <div className="flex items-start gap-1.5 px-3">
           <span className="text-xs text-[color:var(--text-secondary)] flex-1">{agent.role}</span>
           <ProvenanceBadge source={roleSource} size="xs" />
         </div>
@@ -94,7 +96,7 @@ function AgentRoleCard({ agent, provenance }: { agent: HarnessAgent; provenance:
 
       {/* 위험 노트 */}
       {agent.riskNote && (
-        <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-[color:var(--c-yellow-bg)]">
+        <div className="flex items-center gap-1.5 px-3 mx-3 py-1.5 rounded-md bg-[color:var(--c-yellow-bg)]">
           <AlertTriangle size={11} className="text-[color:var(--c-yellow-fg)] flex-none" />
           <span className="text-xs text-[color:var(--c-yellow-fg)]">{agent.riskNote}</span>
         </div>
@@ -102,7 +104,7 @@ function AgentRoleCard({ agent, provenance }: { agent: HarnessAgent; provenance:
 
       {/* 펼쳤을 때 — 도구 + writes */}
       {expanded && (
-        <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-[color:var(--bg-border)]">
+        <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-[color:var(--bg-border)] px-3 pb-3">
           {/* 도구 화이트리스트 */}
           {categorized.length > 0 ? (
             <div>
@@ -133,7 +135,7 @@ function AgentRoleCard({ agent, provenance }: { agent: HarnessAgent; provenance:
               </div>
               <div className="flex flex-wrap gap-1">
                 {agent.writes.map((w) => (
-                  <span key={w} className="ds-chip sq neutral font-mono text-[10px]">{w}</span>
+                  <span key={w} className="ds-chip sq neutral font-mono text-xs">{w}</span>
                 ))}
               </div>
             </div>
@@ -182,7 +184,7 @@ export function SkillsBlocksPanel({ model, sourcePath }: SkillsBlocksPanelProps)
   return (
     <div className="flex flex-col">
       <ViewExplainer
-        title="Skills / Blocks"
+        title="스킬 / 블록"
         howto={
           <span>
             각 에이전트의 역할·사용 도구·주된 위험(빠지기 쉬운 함정)을 보여줍니다.{' '}

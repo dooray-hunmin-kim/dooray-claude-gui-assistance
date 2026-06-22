@@ -124,7 +124,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
         {/* 역할 */}
         {agent.role && (
           <Section label="역할">
-            <p className="text-[11px] text-[color:var(--text-secondary)] leading-snug">
+            <p className="text-xs text-[color:var(--text-secondary)] leading-snug">
               {agent.role}
             </p>
           </Section>
@@ -134,7 +134,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
         {agent.phaseClass && (
           <Section label="페이즈">
             <span
-              className="ds-chip sq text-[10px]"
+              className="ds-chip sq text-xs"
               style={{ background: tokens.bg, color: tokens.fg, border: `1px solid ${tokens.border}` }}
             >
               {agent.phaseClass}
@@ -149,8 +149,8 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
               {agent.tools.map((tool) => (
                 <span
                   key={tool}
-                  className="ds-chip neutral sq"
-                  style={{ fontSize: '9px', maxWidth: '150px' }}
+                  className="ds-chip neutral sq text-xs"
+                  style={{ maxWidth: '150px' }}
                   title={tool}
                 >
                   <span className="truncate inline-block max-w-full">{tool}</span>
@@ -165,7 +165,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
           <Section label="읽기 (reads)" icon={<FileInput size={10} />}>
             <ul className="flex flex-col gap-0.5">
               {agent.reads.map((r, idx) => (
-                <li key={idx} className="text-[10px] text-[color:var(--text-secondary)] font-mono leading-snug truncate" title={r}>
+                <li key={idx} className="text-xs text-[color:var(--text-secondary)] font-mono leading-snug truncate" title={r}>
                   {r}
                 </li>
               ))}
@@ -178,7 +178,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
           <Section label="쓰기 (writes)" icon={<FileOutput size={10} />}>
             <ul className="flex flex-col gap-0.5">
               {agent.writes.map((w, idx) => (
-                <li key={idx} className="text-[10px] text-[color:var(--text-secondary)] font-mono leading-snug truncate" title={w}>
+                <li key={idx} className="text-xs text-[color:var(--text-secondary)] font-mono leading-snug truncate" title={w}>
                   {w}
                 </li>
               ))}
@@ -192,7 +192,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
             label="주된 위험"
             icon={<AlertTriangle size={10} style={{ color: 'var(--c-yellow-fg)' }} />}
           >
-            <p className="text-[11px] text-[color:var(--text-secondary)] leading-snug">
+            <p className="text-xs text-[color:var(--text-secondary)] leading-snug">
               {agent.riskNote}
             </p>
           </Section>
@@ -204,7 +204,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
             label="에스컬레이션"
             icon={<ArrowUpCircle size={10} style={{ color: 'var(--c-orange-fg)' }} />}
           >
-            <p className="text-[11px] text-[color:var(--text-secondary)] leading-snug">
+            <p className="text-xs text-[color:var(--text-secondary)] leading-snug">
               {agent.escalation}
             </p>
           </Section>
@@ -226,7 +226,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
                 {gate.blocking ? (
                   <Chip tone="red" square>차단 (blocking)</Chip>
                 ) : (
-                  <Chip tone="emerald" square>경고만 (non-blocking)</Chip>
+                  <Chip tone="emerald" square>경고만</Chip>
                 )}
               </div>
               {/* 규칙코드 + 무엇을 검사하나 */}
@@ -238,7 +238,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
                       <div key={code} className="flex items-start gap-1.5">
                         <Chip tone="violet" square>{code}</Chip>
                         {msgOf.get(code) && (
-                          <span className="text-[10px] text-[color:var(--text-tertiary)] leading-snug flex-1 min-w-0">
+                          <span className="text-xs text-[color:var(--text-tertiary)] leading-snug flex-1 min-w-0">
                             {msgOf.get(code)}
                           </span>
                         )}
@@ -249,7 +249,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
               })()}
               {/* description 전문 */}
               {gate.description && (
-                <p className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
+                <p className="text-xs text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
                   {gate.description}
                 </p>
               )}
@@ -288,7 +288,7 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
 
             {explainError && (
               <div className="flex flex-col gap-1">
-                <p className="text-[10px] text-[color:var(--c-red-fg)]">{explainError}</p>
+                <p className="text-xs text-[color:var(--c-red-fg)]">{explainError}</p>
                 <Button variant="ghost" size="xs" onClick={() => void handleExplain()}>
                   재시도
                 </Button>
@@ -303,10 +303,10 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }:
                   aria-expanded={explainExpanded}
                 >
                   {explainExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                  <span className="text-[10px]">{explainExpanded ? '접기' : '펼치기'}</span>
+                  <span className="text-xs">{explainExpanded ? '접기' : '펼치기'}</span>
                 </button>
                 {explainExpanded && (
-                  <div className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-2 border border-[color:var(--bg-border)] max-h-48 overflow-y-auto">
+                  <div className="text-xs text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-2.5 border border-[color:var(--bg-border)] max-h-48 overflow-y-auto">
                     {explainMarkdown}
                   </div>
                 )}

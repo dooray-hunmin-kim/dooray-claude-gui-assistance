@@ -32,9 +32,9 @@ function GateNode({ data, selected }: NodeProps): JSX.Element {
         border: `1.5px solid ${selected ? 'var(--c-blue-solid)' : borderVar}`,
         boxShadow: selected ? 'var(--ring-focus)' : undefined,
         borderRadius: '6px',
-        padding: '5px 8px',
-        minWidth: '100px',
-        maxWidth: '160px',
+        padding: '6px 10px',
+        minWidth: '110px',
+        maxWidth: '170px',
         cursor: 'pointer',
         transition: 'opacity 0.2s, box-shadow 0.15s'
       }}
@@ -53,7 +53,7 @@ function GateNode({ data, selected }: NodeProps): JSX.Element {
       <div className="flex items-center gap-1.5">
         <Icon size={10} style={{ color: fgVar, flexShrink: 0 }} />
         <span
-          className="text-[10px] font-semibold"
+          className="text-xs font-semibold"
           style={{ color: fgVar }}
         >
           Gate: {phase}
@@ -93,7 +93,7 @@ function GateNode({ data, selected }: NodeProps): JSX.Element {
       {/* 설명 */}
       {description && (
         <p
-          className="text-[9px] mt-0.5 leading-snug line-clamp-2"
+          className="text-[10px] mt-0.5 leading-snug line-clamp-2"
           style={{ color: fgVar, opacity: 0.75 }}
           title={description}
         >

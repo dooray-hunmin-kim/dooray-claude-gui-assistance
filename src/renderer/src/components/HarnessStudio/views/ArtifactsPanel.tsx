@@ -63,10 +63,19 @@ function ArtifactCard({
   const producerSource = provenance[`artifacts.${artifact.id}.producer`] ?? 'ai'
   const persistSource = provenance[`artifacts.${artifact.id}.persist`] ?? 'ai'
 
+  const hasExpandable = Boolean(artifact.template || artifact.producer || artifact.consumers.length > 0)
+
   return (
-    <Card className="flex flex-col gap-2">
-      {/* 헤더 */}
-      <div className="flex items-center gap-2 flex-wrap">
+    <Card className="flex flex-col gap-0 overflow-hidden p-0">
+      {/* 헤더 — 전체 행이 펼치기/접기 클릭 타겟 */}
+      <div
+        className={`flex items-center gap-2 flex-wrap p-3 ${hasExpandable ? 'cursor-pointer select-none hover:bg-[color:var(--bg-surface-hover)] transition-colors' : ''}`}
+        role={hasExpandable ? 'button' : undefined}
+        tabIndex={hasExpandable ? 0 : undefined}
+        aria-expanded={hasExpandable ? expanded : undefined}
+        onClick={hasExpandable ? () => setExpanded((v) => !v) : undefined}
+        onKeyDown={hasExpandable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded((v) => !v) } } : undefined}
+      >
         <FileText size={13} className="text-[color:var(--text-secondary)] flex-none" />
         <span className="text-sm font-semibold text-[color:var(--text-primary)] flex-1 min-w-0 font-mono">
           {artifact.id}
@@ -78,26 +87,21 @@ function ArtifactCard({
           </span>
           <ProvenanceBadge source={persistSource} size="xs" />
         </div>
-        {(artifact.template || artifact.producer || artifact.consumers.length > 0) && (
-          <button
-            className="flex-none text-[color:var(--text-tertiary)] hover:text-[color:var(--text-secondary)] transition-colors"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-            aria-label={expanded ? '접기' : '펼치기'}
-          >
+        {hasExpandable && (
+          <span className="flex-none text-[color:var(--text-tertiary)]" aria-hidden>
             {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
+          </span>
         )}
       </div>
 
       {/* location */}
       {artifact.location && (
-        <p className="text-xs font-mono text-[color:var(--text-tertiary)]">{artifact.location}</p>
+        <p className="text-xs font-mono text-[color:var(--text-tertiary)] px-3 pb-2">{artifact.location}</p>
       )}
 
       {/* 펼쳤을 때 */}
       {expanded && (
-        <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-[color:var(--bg-border)]">
+        <div className="flex flex-col gap-2 pt-2 pb-3 px-3 border-t border-[color:var(--bg-border)]">
           {/* producer / consumers */}
           <div className="flex flex-wrap items-center gap-3">
             {artifact.producer && (
@@ -127,7 +131,7 @@ function ArtifactCard({
                   <p className="ds-field-label mb-1">Frontmatter 키</p>
                   <div className="flex flex-wrap gap-1">
                     {artifact.template.frontmatter.map((key) => (
-                      <span key={key} className="ds-chip sq neutral font-mono text-[10px]">{key}</span>
+                      <span key={key} className="ds-chip sq neutral font-mono text-xs">{key}</span>
                     ))}
                   </div>
                 </div>
@@ -188,7 +192,7 @@ export function ArtifactsPanel({ model, sourcePath }: ArtifactsPanelProps): JSX.
   return (
     <div className="flex flex-col">
       <ViewExplainer
-        title="Artifacts / 산출물"
+        title="산출물"
         howto={
           <span>
             각 단계가 만들어내는 산출물과 저장 위치를 보여줍니다.{' '}

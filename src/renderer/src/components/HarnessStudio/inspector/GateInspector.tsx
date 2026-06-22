@@ -124,7 +124,7 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
                 <Chip tone="red" square>차단 (blocking)</Chip>
               </div>
               <div
-                className="flex items-start gap-1.5 rounded-md px-2.5 py-2 text-[11px] leading-snug"
+                className="flex items-start gap-1.5 rounded-md px-2.5 py-2 text-xs leading-snug"
                 style={{
                   background: 'var(--c-red-bg)',
                   color: 'var(--c-red-fg)',
@@ -137,7 +137,7 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
-              <Chip tone="emerald" square>경고만 (non-blocking)</Chip>
+              <Chip tone="emerald" square>경고만</Chip>
             </div>
           )}
         </Section>
@@ -145,7 +145,7 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
         {/* 단계 */}
         <Section label="단계 (phase)">
           <span
-            className="ds-chip sq text-[10px] font-mono"
+            className="ds-chip sq text-xs font-mono"
             style={{
               background: 'var(--bg-surface-raised)',
               color: 'var(--text-primary)',
@@ -165,7 +165,7 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
                 {gate.ruleCodes.map((code) => (
                   <div key={code} className="flex items-start gap-2">
                     <Chip tone="violet" square>{code}</Chip>
-                    <span className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed flex-1 min-w-0">
+                    <span className="text-xs text-[color:var(--text-secondary)] leading-relaxed flex-1 min-w-0">
                       {msgOf.get(code) ?? '(스크립트에서 설명 추출 안 됨)'}
                     </span>
                   </div>
@@ -178,7 +178,7 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
         {/* description 전문 — truncate 금지 */}
         {gate.description && (
           <Section label="이 게이트가 막는 것">
-            <p className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
+            <p className="text-xs text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
               {gate.description}
             </p>
           </Section>
@@ -203,7 +203,7 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
 
           {explainError && (
             <div className="flex flex-col gap-1">
-              <p className="text-[10px] text-[color:var(--c-red-fg)]">{explainError}</p>
+              <p className="text-xs text-[color:var(--c-red-fg)]">{explainError}</p>
               <Button variant="ghost" size="xs" onClick={() => void handleExplain()}>
                 재시도
               </Button>
@@ -218,10 +218,10 @@ export function GateInspector({ gate, sourcePath, onClose }: GateInspectorProps)
                 aria-expanded={explainExpanded}
               >
                 {explainExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                <span className="text-[10px]">{explainExpanded ? '접기' : '펼치기'}</span>
+                <span className="text-xs">{explainExpanded ? '접기' : '펼치기'}</span>
               </button>
               {explainExpanded && (
-                <div className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-2 border border-[color:var(--bg-border)] max-h-48 overflow-y-auto">
+                <div className="text-xs text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-2.5 border border-[color:var(--bg-border)] max-h-48 overflow-y-auto">
                   {explainMarkdown}
                 </div>
               )}

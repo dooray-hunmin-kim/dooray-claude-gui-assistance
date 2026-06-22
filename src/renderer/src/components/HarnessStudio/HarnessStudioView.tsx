@@ -32,14 +32,14 @@ type StudioTab = 'overview' | 'flow' | 'dryrun' | 'skills' | 'gates' | 'artifact
 
 const STUDIO_TABS: SegTabItem<StudioTab>[] = [
   { key: 'overview',  label: '개요' },
-  { key: 'flow',      label: 'Flow Canvas' },
-  { key: 'dryrun',    label: 'Dry-run' },
-  { key: 'skills',    label: 'Skills/Blocks' },
-  { key: 'gates',     label: 'Gates' },
-  { key: 'artifacts', label: 'Artifacts' },
-  { key: 'score',     label: 'Score' },
-  { key: 'doctor',    label: 'Doctor' },
-  { key: 'compare',   label: 'Compare' }
+  { key: 'flow',      label: '흐름' },
+  { key: 'dryrun',    label: '드라이런' },
+  { key: 'skills',    label: '스킬·블록' },
+  { key: 'gates',     label: '게이트' },
+  { key: 'artifacts', label: '산출물' },
+  { key: 'score',     label: '점수' },
+  { key: 'doctor',    label: '진단' },
+  { key: 'compare',   label: '비교' }
 ]
 
 // ─────────────────────────────────────────────
@@ -407,9 +407,9 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
             size="xs"
             leftIcon={<Stethoscope size={11} />}
             onClick={() => setActiveTab('doctor')}
-            title="Doctor 점검"
+            title="진단 점검"
           >
-            Doctor
+            진단
           </Button>
           <Button
             variant="ghost"
@@ -418,7 +418,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
             onClick={() => setActiveTab('compare')}
             title="다른 하네스와 비교"
           >
-            Compare
+            비교
           </Button>
           <Button
             variant="ghost"
@@ -427,7 +427,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
             onClick={() => downloadHtmlReport(model)}
             title="HTML 리포트 다운로드"
           >
-            Export
+            내보내기
           </Button>
           <Button
             variant="ghost"
@@ -538,7 +538,7 @@ function TabContent({
       return (
         <div className="w-full h-full flex flex-col">
           <div className="flex items-center gap-2 px-4 py-2 bg-[color:var(--bg-surface)] border-b border-[color:var(--bg-border)] flex-shrink-0 text-xs text-[color:var(--text-tertiary)]">
-            <span>노드=에이전트(색=역할) · 드래그로 이동 · 노드 클릭 시 상세 패널 · 레벨 토글로 경로 강조</span>
+            <span>노드=에이전트(색=역할) · 드래그로 이동 · 노드 클릭 시 상세 패널 표시 · 레벨 토글로 경로 강조</span>
           </div>
           <div className="flex-1 min-h-0">
             <FlowCanvas model={model} highlightPath={highlightPath} overlayEnabled={overlayEnabled} />
