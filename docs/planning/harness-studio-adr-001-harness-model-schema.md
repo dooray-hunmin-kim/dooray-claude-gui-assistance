@@ -11,7 +11,7 @@ domain: ai-service, electron-ipc, renderer-only
 
 ## 컨텍스트
 
-렌더러(Flow Canvas + 6뷰)는 **하니스-agnostic** 해야 한다 — reined-bmad·neon-bmad·임의 번들 무엇이 오든 *하나의 JSON*(HarnessModel)만 그린다. 따라서 "무엇이 정적으로 확실히 얻어지고, 무엇은 AI 추론이 필요한가"의 경계를 스키마에 못 박지 않으면, 렌더러가 번들마다 분기하거나 AI가 정적으로 확실한 값을 잘못 덮어쓴다.
+렌더러(Flow Canvas + 6뷰)는 **하네스-agnostic** 해야 한다 — reined-bmad·neon-bmad·임의 번들 무엇이 오든 *하나의 JSON*(HarnessModel)만 그린다. 따라서 "무엇이 정적으로 확실히 얻어지고, 무엇은 AI 추론이 필요한가"의 경계를 스키마에 못 박지 않으면, 렌더러가 번들마다 분기하거나 AI가 정적으로 확실한 값을 잘못 덮어쓴다.
 
 실제 두 번들을 열어본 결과(arch.md §0):
 - frontmatter(`name`/`tools`/`allowed-tools`/`model?`/`description`)와 파일트리 토폴로지는 **번들 불문 정적 100%**.

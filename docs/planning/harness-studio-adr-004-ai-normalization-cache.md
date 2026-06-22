@@ -23,7 +23,7 @@ domain: ai-service, electron-ipc
 <userData>/harness-cache/
   bundles/<bundleHash>.json   # HarnessModel
   tasks/<taskHash>.json       # DryRunResult
-  index.json                  # 최근 연 하니스 목록 (path/name/cachedAt/schemaVersion)
+  index.json                  # 최근 연 하네스 목록 (path/name/cachedAt/schemaVersion)
 ```
 
 - `bundleHash = sha256(정렬된 [상대경로 + mtimeMs + size] + frontmatter 내용)`. 파일 추가/수정/삭제 시 자동 무효화.

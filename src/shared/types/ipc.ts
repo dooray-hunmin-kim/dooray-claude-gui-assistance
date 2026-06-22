@@ -280,7 +280,7 @@ export const IPC_CHANNELS = {
   HARNESS_EXPLAIN: 'harness:explain',
   /** 캐시 삭제 — path 지정 시 해당 번들만, 생략 시 전체. 삭제된 항목 수 반환 */
   HARNESS_CACHE_CLEAR: 'harness:cache:clear',
-  /** 캐시된 번들 목록 반환 — 최근 정규화한 하니스 빠른 재오픈용 */
+  /** 캐시된 번들 목록 반환 — 최근 정규화한 하네스 빠른 재오픈용 */
   HARNESS_LIST_CACHED: 'harness:list-cached'
 } as const
 

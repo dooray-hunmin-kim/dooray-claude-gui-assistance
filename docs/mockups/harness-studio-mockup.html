@@ -325,10 +325,10 @@
           <span class="chip">에이전트 13 (워크플로우 10 + 정비용 3)</span>
           <span class="chip">레벨 4 (L0–L3)</span>
           <span class="chip">게이트 8</span>
-          <span class="chip score">하니스 6축 12/12</span>
+          <span class="chip score">하네스 6축 12/12</span>
         </div>
         <div class="spacer"></div>
-        <button class="btn" onclick="alert('하니스 비교 뷰 (예: neon-bmad ↔ reined-bmad) — 후속 P3')">⇄ 비교</button>
+        <button class="btn" onclick="alert('하네스 비교 뷰 (예: neon-bmad ↔ reined-bmad) — 후속 P3')">⇄ 비교</button>
         <button class="btn primary" onclick="openImport()">＋ Import</button>
       </div>
 
@@ -338,7 +338,7 @@
         <div class="tab" data-tab="skills" onclick="switchTab('skills')">🧩 스킬 &amp; 블록</div>
         <div class="tab" data-tab="gates" onclick="switchTab('gates')">🛡 게이트 &amp; 강제</div>
         <div class="tab" data-tab="artifacts" onclick="switchTab('artifacts')">📁 산출물</div>
-        <div class="tab" data-tab="score" onclick="switchTab('score')">📐 하니스 점수</div>
+        <div class="tab" data-tab="score" onclick="switchTab('score')">📐 하네스 점수</div>
       </div>
 
       <div class="content">
@@ -376,7 +376,7 @@
           <div class="callout">
             <b>Dry-run</b> — 태스크를 주면 neon-bmad가 <b>어떤 레벨로 판정</b>하고 <b>어떤 에이전트가 어떤 모델로 어떤 순서</b>로 도는지,
             <b>어떤 게이트</b>를 통과하고 <b>어떤 산출물</b>이 남는지를 <b>실행 없이 미리</b> 보여줍니다.
-            레벨 추정만 AI(Haiku)가 하고, 그 다음 경로·게이트·산출물은 하니스 규칙으로 결정론적 계산.
+            레벨 추정만 AI(Haiku)가 하고, 그 다음 경로·게이트·산출물은 하네스 규칙으로 결정론적 계산.
           </div>
           <div class="dr-grid">
             <div class="card">
@@ -452,7 +452,7 @@
           <div class="callout">
             neon-bmad는 스스로를 <b>6축</b>으로 적대적 채점(<code>harness-critic</code>, Opus)합니다.
             각 축 = <b>골격이 행동을 강제·기록(2)</b> / <b>모델 협조 기대(1)</b> / <b>없음(0)</b>.
-            "프롬프트 더미"와 "하니스"를 가르는 기준.
+            "프롬프트 더미"와 "하네스"를 가르는 기준.
           </div>
           <div class="score-grid">
             <div>
@@ -479,7 +479,7 @@
 <div class="modal-bg" id="importModal" onclick="if(event.target===this)closeImport()">
   <div class="modal wide">
     <h3 style="margin:0">방법론 Import — 누가 무엇을 올리든 그 환경에 맞게 해석</h3>
-    <div class="muted small">하니스 번들 / config.md / 스킬 zip / 두레이 태스크. 정적 스캔(무료) → AI 정규화(Sonnet, 캐시) → 개인화 확정.</div>
+    <div class="muted small">하네스 번들 / config.md / 스킬 zip / 두레이 태스크. 정적 스캔(무료) → AI 정규화(Sonnet, 캐시) → 개인화 확정.</div>
     <div class="stepper" id="stepper">
       <div class="st" data-s="1"><span class="nz">1</span>소스</div><div class="sep"></div>
       <div class="st" data-s="2"><span class="nz">2</span>구조 인식</div><div class="sep"></div>
@@ -494,8 +494,8 @@
         <div class="srctab">⚙ config.md 연결</div>
         <div class="srctab">🔗 두레이 / 스킬 zip</div>
       </div>
-      <div class="drop"><div class="big">📦</div><div style="margin-top:8px">여기에 <b>하니스 번들 / 스킬 zip / config.md</b> 드롭</div><div class="muted small" style="margin-top:4px">한 폴더, 여러 zip, 부분 스킬 모두 허용</div></div>
-      <div class="muted small" style="margin-top:12px">또는 — 이 기기에 설치된 하니스 자동 발견 <code style="font-size:10px">~/.claude/skills/*-bmad</code></div>
+      <div class="drop"><div class="big">📦</div><div style="margin-top:8px">여기에 <b>하네스 번들 / 스킬 zip / config.md</b> 드롭</div><div class="muted small" style="margin-top:4px">한 폴더, 여러 zip, 부분 스킬 모두 허용</div></div>
+      <div class="muted small" style="margin-top:12px">또는 — 이 기기에 설치된 하네스 자동 발견 <code style="font-size:10px">~/.claude/skills/*-bmad</code></div>
       <div class="discover">
         <div class="disc sel" onclick="pickDisc(this)"><div class="di" style="background:linear-gradient(135deg,#ff7a1a,#4a9eff)">N</div><div class="dt"><b>neon-bmad v1.6.0</b><div>2NEON 재무회계 · 에이전트 13 · 레벨 4 · 6축 12/12</div></div><div class="radio"></div></div>
         <div class="disc" onclick="pickDisc(this)"><div class="di" style="background:linear-gradient(135deg,#34d399,#4a9eff)">R</div><div class="dt"><b>reined-bmad v1.1.0</b><div>범용 · 에이전트 12 (be/fe 분리) · 레벨 4</div></div><div class="radio"></div></div>
@@ -524,7 +524,7 @@
         <div class="normrow" data-i="1"><span class="nck"></span><span>레벨 L0~L3 + 트리아지 6질문 규칙</span></div>
         <div class="normrow" data-i="2"><span class="nck"></span><span>산출물 9 + 템플릿 스켈레톤 + 의존 흐름</span></div>
         <div class="normrow" data-i="3"><span class="nck"></span><span>게이트(gate-check) · 자동 hook · pipeline 상태기계</span></div>
-        <div class="normrow" data-i="4"><span class="nck"></span><span>하니스 6축 점수 (harness-critic 자기채점)</span></div>
+        <div class="normrow" data-i="4"><span class="nck"></span><span>하네스 6축 점수 (harness-critic 자기채점)</span></div>
       </div>
     </div>
 
@@ -549,7 +549,7 @@
 <script>
 /* =========================================================
    HarnessModel — neon-bmad v1.6.0 (정규화된 데이터 모델)
-   렌더러는 이 객체 하나만 그린다 (하니스-agnostic).
+   렌더러는 이 객체 하나만 그린다 (하네스-agnostic).
    ========================================================= */
 const AGENTS = {
   orchestrator:{name:"orchestrator",model:"haiku",pclass:"coordinate",
@@ -600,7 +600,7 @@ const AGENTS = {
 /* 정비용 3종 — 워크플로우 자동 호출 안 됨 (사용자 명시 호출만) */
 const MAINTENANCE = [
   {name:"harness-critic",model:"opus",desc:"6축 적대적 자기채점 + 약점·증거 파일"},
-  {name:"harness-verifier",model:"opus",desc:"하니스 파일 전수 정합 검증"},
+  {name:"harness-verifier",model:"opus",desc:"하네스 파일 전수 정합 검증"},
   {name:"report-verifier",model:"opus",desc:"neon-bmad-report.html 검증 (NHN DS + 내용)"},
 ];
 
@@ -1071,7 +1071,7 @@ function renderWizard(){
     s.querySelector(".nz").textContent = n<wzStep?"✓":n; });
   document.getElementById("wzBack").style.visibility = wzStep>1?"visible":"hidden";
   const next=document.getElementById("wzNext");
-  next.textContent = wzStep===4 ? "이 하니스로 열기 ✓" : (wzStep===3 ? "정규화 완료 → 다음" : "다음 →");
+  next.textContent = wzStep===4 ? "이 하네스로 열기 ✓" : (wzStep===3 ? "정규화 완료 → 다음" : "다음 →");
   if(wzStep===3) runNormalize();
 }
 function runNormalize(){

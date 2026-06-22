@@ -75,7 +75,7 @@ export function ImportWizard({ onComplete, onClose }: ImportWizardProps): JSX.El
       <div className="flex items-center justify-between px-4 py-3 border-b border-[color:var(--bg-border)] flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-[color:var(--text-primary)]">
-            하니스 가져오기
+            하네스 가져오기
           </span>
         </div>
         <Button variant="icon" size="sm" onClick={onClose} aria-label="위저드 닫기">

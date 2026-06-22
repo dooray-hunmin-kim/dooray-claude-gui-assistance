@@ -5,7 +5,7 @@
  * 사용하는 것을 권장한다(ADR-003 §격리).
  *
  * props:
- * - model          : HarnessModel (정규화된 하니스 모델)
+ * - model          : HarnessModel (정규화된 하네스 모델)
  * - highlightPath  : string[] (Dry-run 연동 — 해당 에이전트 강조)
  * - overlayEnabled : boolean  (개인화 오버레이 반영 여부, 기본 true)
  * - onSelectAgent  : (agentId: string) => void (노드 클릭 콜백)

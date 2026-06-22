@@ -96,7 +96,7 @@ M0 (타입/스캐폴드)
 | 4.3 | `ScanStep`(정적결과 kind/트리, AI전 0초, kind 수동교정) | renderer | RE | `import/ScanStep.tsx` | ADR-002 kind 교정 |
 | 4.4 | `NormalizeStep`(useAIProgress + provenance 프리뷰) | renderer | RE | `import/NormalizeStep.tsx`, `shared/ProvenanceBadge.tsx` | |
 | 4.5 | `ConfirmStep`(오버레이/용어번역 토글) + `HarnessStudioView` 상태배선 | renderer | RE | `import/ConfirmStep.tsx`, `HarnessStudioView.tsx` | model 보유 |
-| 4.6 | `LIST_CACHED` 로 최근 하니스 빠른 재오픈 UI | renderer | RE | `HarnessStudioView.tsx` | 재오픈 0초 UX |
+| 4.6 | `LIST_CACHED` 로 최근 하네스 빠른 재오픈 UI | renderer | RE | `HarnessStudioView.tsx` | 재오픈 0초 UX |
 
 - 의존: M3 (IPC)
 - 테스트(TE): `ProvenanceBadge.test.tsx`, 위저드 step 전이 로직(순수 추출분). ds 컴포넌트(SegTabs/Button/Card/Modal) 재사용.
@@ -159,7 +159,7 @@ M0 (타입/스캐폴드)
 | 8.1 | 오버레이 반영(개인화) — overlay 의 modelOverrides/disabledAgents 를 그래프/뷰에 적용 | renderer+main | RE/MPE | `buildGraph.ts`, 뷰들 | PRD §5 ④ |
 | 8.2 | `HARNESS_EXPLAIN`(온디맨드 Sonnet 설명/용어번역) | ai-service+ipc | MPE | `AIService.ts`, `index.ts`, `preload` | PRD §8 |
 | 8.3 | 공유 Export(이미지/HTML) | renderer | RE | `HarnessStudio/export/*` | PRD §11 P3 |
-| 8.4 | 하니스 비교 뷰(neon↔reined diff) | renderer | RE | `views/CompareView.tsx` | 두 model diff |
+| 8.4 | 하네스 비교 뷰(neon↔reined diff) | renderer | RE | `views/CompareView.tsx` | 두 model diff |
 | 8.5 | Doctor 패널(정합 PASS/WARN/FAIL + 6축 약점) | renderer | RE | `views/DoctorPanel.tsx` | PRD §12-7 |
 | 8.6 | **ClaudeManual SECTIONS 에 Harness Studio 항목** (DOD) | renderer | RE/writer | `ClaudeManual/ClaudeManual.tsx` | 사용자 가시 기능 |
 | 8.7 | CHANGELOG v1.7 항목 + README 점검 | docs | writer | `CHANGELOG.md`, `README.md` | DOD |

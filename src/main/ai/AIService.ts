@@ -1534,7 +1534,7 @@ ${useMcp ? `
   ): Promise<string> {
     const model = this.pickModel('harnessExplain', 'sonnet')
 
-    const systemPrompt = `당신은 AI 에이전트 하니스(agentic harness/workflow) 전문 설명가입니다.
+    const systemPrompt = `당신은 AI 에이전트 하네스(agentic harness/workflow) 전문 설명가입니다.
 사용자가 Harness Studio 에서 특정 개념/용어/에이전트/게이트/레벨을 클릭하면 그 내용을 한국어로 친절하게 설명합니다.
 
 규칙:

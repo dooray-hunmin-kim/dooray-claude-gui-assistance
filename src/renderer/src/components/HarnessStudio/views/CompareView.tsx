@@ -444,9 +444,9 @@ function SelectTargetView({
     return (
       <div className="flex flex-col items-center justify-center h-full p-8 gap-3">
         <GitCompare size={24} className="text-[color:var(--text-tertiary)]" />
-        <p className="text-sm font-semibold text-[color:var(--text-secondary)]">비교할 하니스 없음</p>
+        <p className="text-sm font-semibold text-[color:var(--text-secondary)]">비교할 하네스 없음</p>
         <p className="text-xs text-[color:var(--text-tertiary)] text-center max-w-xs">
-          캐시에 다른 하니스가 없습니다. 하니스를 더 가져오면 여기서 비교할 수 있습니다.
+          캐시에 다른 하네스가 없습니다. 하네스를 더 가져오면 여기서 비교할 수 있습니다.
         </p>
       </div>
     )
@@ -456,10 +456,10 @@ function SelectTargetView({
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-center gap-2">
         <GitCompare size={14} className="text-[color:var(--clauday-blue)]" />
-        <p className="text-sm font-semibold text-[color:var(--text-primary)]">비교할 하니스 선택</p>
+        <p className="text-sm font-semibold text-[color:var(--text-primary)]">비교할 하네스 선택</p>
       </div>
       <p className="text-xs text-[color:var(--text-secondary)]">
-        현재 열린 <strong>{currentModel.meta.name}</strong> 과 비교할 하니스를 선택하세요.
+        현재 열린 <strong>{currentModel.meta.name}</strong> 과 비교할 하네스를 선택하세요.
       </p>
       <div className="flex flex-col gap-2">
         {candidates.map((entry) => (
@@ -595,7 +595,7 @@ export function CompareView({ model, cachedList }: CompareViewProps): JSX.Elemen
       {!hasChanges && diff.scores.length === 0 && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-[color:var(--c-emerald-bg)] text-xs text-[color:var(--c-emerald-fg)]">
           <AlertTriangle size={11} className="flex-none" />
-          두 하니스 사이에 감지된 차이가 없습니다.
+          두 하네스 사이에 감지된 차이가 없습니다.
         </div>
       )}
 

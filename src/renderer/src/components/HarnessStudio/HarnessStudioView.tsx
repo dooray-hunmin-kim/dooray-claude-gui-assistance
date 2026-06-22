@@ -134,7 +134,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
               leftIcon={<Plus size={12} />}
               onClick={() => setWizardOpen(true)}
             >
-              하니스 가져오기
+              하네스 가져오기
             </Button>
           </div>
         </div>
@@ -154,7 +154,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
               <div className="flex items-center justify-center h-full">
                 <EmptyView
                   icon={Workflow}
-                  title="가져온 하니스가 없습니다"
+                  title="가져온 하네스가 없습니다"
                   body={
                     <span className="text-center">
                       bmad 번들 폴더를 가져오면<br />
@@ -169,7 +169,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
                       leftIcon={<Plus size={12} />}
                       onClick={() => setWizardOpen(true)}
                     >
-                      하니스 가져오기
+                      하네스 가져오기
                     </Button>
                   }
                 />
@@ -179,7 +179,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
                 <div className="flex items-center gap-2">
                   <History size={13} className="text-[color:var(--text-secondary)]" />
                   <span className="text-xs font-semibold text-[color:var(--text-secondary)] uppercase tracking-wider">
-                    최근 하니스
+                    최근 하네스
                   </span>
                 </div>
                 {cachedList.map((entry) => (
@@ -228,7 +228,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
             size="xs"
             leftIcon={<GitCompare size={11} />}
             onClick={() => setActiveTab('compare')}
-            title="다른 하니스와 비교"
+            title="다른 하네스와 비교"
           >
             Compare
           </Button>
@@ -246,7 +246,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
             size="xs"
             leftIcon={<RotateCcw size={11} />}
             onClick={handleReset}
-            title="다른 하니스 가져오기"
+            title="다른 하네스 가져오기"
           >
             변경
           </Button>
@@ -345,7 +345,7 @@ function TabContent({
   }
 }
 
-/** 캐시된 하니스 항목 카드 */
+/** 캐시된 하네스 항목 카드 */
 function CachedEntryCard({
   entry,
   onOpen

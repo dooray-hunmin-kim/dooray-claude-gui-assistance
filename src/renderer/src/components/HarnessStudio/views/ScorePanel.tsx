@@ -49,7 +49,7 @@ function ScoreRadar({ model }: { model: HarnessModel }): JSX.Element {
           }}
         />
         <Radar
-          name="하니스 점수"
+          name="하네스 점수"
           dataKey="value"
           stroke="var(--clauday-blue)"
           fill="var(--clauday-blue)"
@@ -94,7 +94,7 @@ export function ScorePanel({ model }: ScorePanelProps): JSX.Element {
           body={
             <span className="text-center">
               번들에서 6축 점수를 계산할 수 없습니다.<br />
-              하니스를 다시 가져와 AI 정규화를 실행하면<br />
+              하네스를 다시 가져와 AI 정규화를 실행하면<br />
               Sonnet 이 점수를 추정합니다.
             </span>
           }
@@ -120,7 +120,7 @@ export function ScorePanel({ model }: ScorePanelProps): JSX.Element {
         <div className="flex items-center gap-3 flex-wrap">
           <BarChart2 size={16} className="text-[color:var(--c-blue-fg)]" />
           <h2 className="text-sm font-semibold text-[color:var(--text-primary)]">
-            하니스 종합 점수
+            하네스 종합 점수
           </h2>
           <span className={`ds-chip sq ${gradeResult.tone} text-base font-bold px-3`}>
             {gradeResult.grade} · {gradeResult.percent}%

@@ -72,9 +72,9 @@ bmad 번들(reined-bmad, neon-bmad 등)을 가져와 에이전트 구조, 레벨
    - 완료 후 필드 출처(정적/AI/파생/없음) 요약을 확인할 수 있습니다
 4. **확정·개인화** — 오버레이 반영·용어 번역 토글(P3) 후 **Harness Studio 열기**를 클릭합니다.
 
-## 최근 하니스 재오픈
+## 최근 하네스 재오픈
 
-Harness Studio 랜딩 화면에 **최근 하니스** 목록이 표시됩니다. 클릭하면 캐시에서 즉시 불러옵니다.
+Harness Studio 랜딩 화면에 **최근 하네스** 목록이 표시됩니다. 클릭하면 캐시에서 즉시 불러옵니다.
 
 ## 신뢰도 배지 (Provenance)
 
@@ -89,7 +89,7 @@ Harness Studio 랜딩 화면에 **최근 하니스** 목록이 표시됩니다. 
 
 ## Flow Canvas (M5)
 
-하니스를 열면 **Flow Canvas** 탭이 기본으로 활성화됩니다.
+하네스를 열면 **Flow Canvas** 탭이 기본으로 활성화됩니다.
 
 ### L0~L3 레벨 토글
 탭 바 상단의 세그먼트 탭으로 레벨을 전환합니다.
@@ -129,7 +129,7 @@ Harness Studio 랜딩 화면에 **최근 하니스** 목록이 표시됩니다. 
 캔버스 빈 곳을 클릭하면 Inspector 가 닫힙니다.
 
 ### 오버레이 반영 (M8)
-model.overlay 가 있는 하니스는 Flow Canvas 에 오버레이 효과가 반영됩니다:
+model.overlay 가 있는 하네스는 Flow Canvas 에 오버레이 효과가 반영됩니다:
 - **비활성 에이전트** (disabledAgents): 흐림 처리 + overlayDisabled 배지
 - **모델 오버라이드** (modelOverrides): 노드 모델 배지가 오버라이드 값으로 표시
 
@@ -151,15 +151,15 @@ model.overlay 가 있는 하니스는 Flow Canvas 에 오버레이 효과가 반
 | **Artifacts** | 산출물 트리·persist 구분(git/ignore/dooray)·템플릿 스켈레톤 |
 | **Score** | 6축 레이더 차트(강제력·제어흐름·상태·차단게이트·피드백루프·관측가능성) |
 | **Doctor** | AI 없이 정적 정합 점검 — PASS/WARN/FAIL + 6축 약점 요약 |
-| **Compare** | 캐시에서 다른 하니스를 선택해 에이전트/레벨/게이트/점수 diff 비교 |
+| **Compare** | 캐시에서 다른 하네스를 선택해 에이전트/레벨/게이트/점수 diff 비교 |
 
 ## 헤더 버튼 (M8)
 
 | 버튼 | 기능 |
 |------|------|
 | **Doctor** | Doctor 탭으로 이동 (정합 점검) |
-| **Compare** | Compare 탭으로 이동 (다른 하니스와 diff) |
-| **Export** | 현재 하니스를 HTML 리포트로 다운로드 (독립 HTML 파일, 새 의존성 없음) |
+| **Compare** | Compare 탭으로 이동 (다른 하네스와 diff) |
+| **Export** | 현재 하네스를 HTML 리포트로 다운로드 (독립 HTML 파일, 새 의존성 없음) |
 
 ## Doctor — 정적 정합 점검 (M8)
 
@@ -174,7 +174,7 @@ AI 없이 즉시 실행되는 7가지 점검:
 
 점검 결과: **PASS**(초록) / **WARN**(노랑) / **FAIL**(빨강). FAIL 하나라도 있으면 전체 결과도 FAIL.
 
-## Compare — 하니스 diff (M8)
+## Compare — 하네스 diff (M8)
 
 최근 목록(캐시)에서 비교 대상을 선택하면 다음 항목의 차이를 표로 표시합니다:
 - **에이전트**: 추가/제거/변경(모델·역할·도구 등)

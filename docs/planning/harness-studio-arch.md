@@ -265,7 +265,7 @@ CHANGELOG.md                                                # v1.7 항목
    ▼
 [renderer] NormalizeStep(useAIProgress 진행률) → ConfirmStep → HarnessStudioView 가 model 보유
    ▼
-[renderer] FlowCanvas/6뷰 가 model 하나만 그림 (하니스-agnostic)
+[renderer] FlowCanvas/6뷰 가 model 하나만 그림 (하네스-agnostic)
 ```
 > **정적 스켈레톤 우선**: Normalizer 는 RawBundle 의 [S] 필드로 HarnessModel 골격을 먼저 채우고, AI 에는 *비어있는 [AI] 필드만* JSON 으로 요청·머지한다. AI 가 [S] 필드를 덮어쓰지 못하게 한다(정적이 더 신뢰도 높음). 근거: ADR-001.
 
@@ -299,7 +299,7 @@ CHANGELOG.md                                                # v1.7 항목
 | `HARNESS_DRYRUN` | `harness:dryrun` | `{ path: string; taskText: string }` | `DryRunResult` | taskHash 캐시 |
 | `HARNESS_EXPLAIN` | `harness:explain` | `{ path; topic: string }` | `{ markdown: string }` | 개인화 설명/용어번역(P3, 온디맨드 Sonnet) |
 | `HARNESS_CACHE_CLEAR` | `harness:cache:clear` | `{ path?: string }` | `{ cleared: number }` | 진단/재정규화용 |
-| `HARNESS_LIST_CACHED` | `harness:list-cached` | `void` | `{ path; name; cachedAt }[]` | 최근 연 하니스 빠른 재오픈 |
+| `HARNESS_LIST_CACHED` | `harness:list-cached` | `void` | `{ path; name; cachedAt }[]` | 최근 연 하네스 빠른 재오픈 |
 
 **+1 (이벤트, renderer←main)**: 정규화/Dry-run 진행률은 **기존 `AI_PROGRESS` 이벤트 채널을 재사용**한다(이미 `useAIProgress` 훅 존재). 신규 push 채널을 만들지 않는다 — requestId 로 구분.
 
@@ -334,7 +334,7 @@ CHANGELOG.md                                                # v1.7 항목
 ```
 
 - **bundleHash** = `sha256(정렬된 [상대경로 + mtimeMs + size] 목록 + frontmatter 내용)`. 파일 추가/수정/삭제 시 자동 무효화. 내용 기반이라 경로만 바뀌어도(복사) 재사용 가능 여부는 mtime 포함으로 보수적 처리.
-- **taskHash** = `sha256(bundleHash + normalizedTaskText)`. 같은 하니스+같은 태스크면 재추정 안 함.
+- **taskHash** = `sha256(bundleHash + normalizedTaskText)`. 같은 하네스+같은 태스크면 재추정 안 함.
 - **schemaVersion 불일치 시 무효화**: HarnessModel 스키마가 바뀌면 옛 캐시 자동 폐기(읽을 때 버전 비교).
 - **electron-store 회피 이유**: 정규화 JSON 은 수 KB~수십 KB, 번들 수가 늘면 store 단일 JSON 비대화 + 매 쓰기 전체 직렬화 비용. 파일 분리가 무효화·용량·진단(파일 삭제로 강제 재정규화)에 유리.
 
