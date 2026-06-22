@@ -511,42 +511,67 @@ export class CalDAVClient {
     
     const absUrl = input.href.startsWith('http') ? input.href : SERVER_URL + input.href
     const auth = basicAuthHeader()
-    // 진단: 실제 PUT 본문 전체 + 보낸 If-Match 값 로그 (CRLF 는 ⏎ 로 치환해 한 줄로)
-    console.log('[CalDAV PUT updateEvent] ifMatch=', input.etag ? quoteEtag(input.etag) : '(none)', 'bodyLen=', newIcs.length)
-    console.log('[CalDAV PUT updateEvent] BODY>>>\n' + newIcs.replace(/\r\n/g, '\n'))
-    const resp = await fetch(absUrl, {
-      method: 'PUT',
-      headers: {
-        Authorization: auth,
-        'Content-Type': 'text/calendar; charset=utf-8',
-        ...(input.etag ? { 'If-Match': quoteEtag(input.etag)! } : {})
-      },
-      body: newIcs
-    })
-    const respBody = await resp.text().catch(() => '')
-    if (!resp.ok) {
-      console.error('[CalDAV PUT updateEvent] FAIL status=', resp.status, 'respHeaders=', JSON.stringify(Object.fromEntries(resp.headers.entries())), 'respBody=', respBody)
-      throw new Error(`CalDAV PUT 실패: ${resp.status} ${respBody.slice(0, 300)}`)
-    }
-    let newEtag = resp.headers.get('etag') ?? undefined
-    console.log('[CalDAV PUT updateEvent]', absUrl, 'status=', resp.status, 'etagHdr=', newEtag, 'respBodyLen=', respBody.length)
 
-    // 진단 + 보정: 두레이는 PUT 응답에 ETag 를 안 주는 경우가 있어, 직후 GET 으로 실제 반영 여부 확인.
-    // 서버가 정상 반영했다면 GET 의 SUMMARY 가 새 값이고 새 etag 를 받는다. (안 바뀌면 서버가 PUT 을 무시한 것)
-    try {
-      const verify = await fetch(absUrl, { method: 'GET', headers: { Authorization: auth } })
-      const vtext = await verify.text().catch(() => '')
-      const vparsed = parseICal(vtext)
-      const vEtag = verify.headers.get('etag') ?? undefined
-      console.log('[CalDAV PUT verify] GET status=', verify.status,
-        'serverSummary=', vparsed?.summary,
-        'applied=', vparsed?.summary === input.summary, 'etag=', vEtag)
-      // PUT 이 etag 를 안 줬으면 GET 의 etag 를 사용 (incrementalSync 가 변경을 감지하도록)
-      if (!newEtag && vEtag) newEtag = vEtag
-    } catch (e) {
-      console.warn('[CalDAV PUT verify] GET 실패:', e)
+    // 서버에 PUT 후 GET 으로 실제 반영 여부 확인. summary 가 새 값이면 성공.
+    const verifyApplied = async (label: string): Promise<{ applied: boolean; etag?: string }> => {
+      try {
+        const verify = await fetch(absUrl, { method: 'GET', headers: { Authorization: auth, 'Cache-Control': 'no-cache' } })
+        const vtext = await verify.text().catch(() => '')
+        const vparsed = parseICal(vtext)
+        const vEtag = verify.headers.get('etag') ?? undefined
+        const applied = vparsed?.summary === input.summary
+        console.log(`[CalDAV PUT verify:${label}] GET status=`, verify.status, 'serverSummary=', vparsed?.summary, 'applied=', applied, 'etag=', vEtag)
+        return { applied, etag: vEtag }
+      } catch (e) {
+        console.warn(`[CalDAV PUT verify:${label}] GET 실패:`, e)
+        return { applied: false }
+      }
     }
-    return { etag: newEtag?.replace(/^["']|["']$/g, '') }
+
+    const doPut = async (label: string, withIfMatch: boolean): Promise<Response> => {
+      const headers: Record<string, string> = { Authorization: auth, 'Content-Type': 'text/calendar; charset=utf-8' }
+      if (withIfMatch && input.etag) headers['If-Match'] = quoteEtag(input.etag)!
+      // redirect: 'manual' — 두레이가 PUT 을 30x 로 리다이렉트하면 fetch 가 GET 으로 따라가 본문이 유실될 수 있음.
+      const r = await fetch(absUrl, { method: 'PUT', headers, body: newIcs, redirect: 'manual' })
+      const loc = r.headers.get('location')
+      console.log(`[CalDAV PUT ${label}] status=`, r.status, 'redirected=', r.redirected, 'finalUrl=', r.url, 'location=', loc,
+        'etagHdr=', r.headers.get('etag'), 'allHeaders=', JSON.stringify(Object.fromEntries(r.headers.entries())))
+      // 30x 면 Location 으로 PUT 재전송 (메서드/본문 유지)
+      if ([301, 302, 303, 307, 308].includes(r.status) && loc) {
+        const next = loc.startsWith('http') ? loc : new URL(loc, absUrl).toString()
+        console.log(`[CalDAV PUT ${label}] following redirect → ${next}`)
+        return fetch(next, { method: 'PUT', headers, body: newIcs, redirect: 'manual' })
+      }
+      return r
+    }
+
+    console.log('[CalDAV PUT updateEvent] ifMatch=', input.etag ? quoteEtag(input.etag) : '(none)', 'bodyLen=', newIcs.length, 'url=', absUrl)
+    console.log('[CalDAV PUT updateEvent] BODY>>>\n' + newIcs.replace(/\r\n/g, '\n'))
+
+    // 1차: If-Match 포함 PUT
+    let resp = await doPut('A(if-match)', true)
+    if (resp.status >= 400) {
+      const b = await resp.text().catch(() => '')
+      throw new Error(`CalDAV PUT 실패: ${resp.status} ${b.slice(0, 300)}`)
+    }
+    let v = await verifyApplied('A')
+
+    // 2차 실험/보정: 안 먹었으면 If-Match 없이 다시 PUT (서버가 precondition 처리를 못해 무시하는 케이스 대응)
+    if (!v.applied) {
+      console.log('[CalDAV PUT updateEvent] A 미반영 → If-Match 없이 재시도(B)')
+      resp = await doPut('B(no-if-match)', false)
+      if (resp.status >= 400) {
+        const b = await resp.text().catch(() => '')
+        console.error('[CalDAV PUT updateEvent] B 실패:', resp.status, b.slice(0, 200))
+      } else {
+        v = await verifyApplied('B')
+      }
+    }
+
+    if (!v.applied) {
+      throw new Error('CalDAV 서버가 일정 변경을 반영하지 않았습니다 (PUT 200/no-op). 로그의 verify 결과를 확인하세요.')
+    }
+    return { etag: v.etag?.replace(/^["']|["']$/g, '') }
   }
 
   // ─────────────────────────────────────────────────────────────
