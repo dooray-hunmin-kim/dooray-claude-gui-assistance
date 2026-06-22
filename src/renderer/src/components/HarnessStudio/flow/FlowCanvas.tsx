@@ -12,6 +12,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import type React from 'react'
 import {
   ReactFlow,
   Background,
@@ -104,6 +105,36 @@ export function FlowCanvas({ model, highlightPath, overlayEnabled = true, onSele
   )
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [selectedGate, setSelectedGate] = useState<HarnessGate | null>(null)
+
+  // 인스펙터 패널 폭 — 왼쪽 가장자리 드래그로 리사이즈. 폭은 localStorage 에 기억.
+  const [inspectorWidth, setInspectorWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('harness.inspectorWidth'))
+    return saved >= INSPECTOR_MIN_W && saved <= INSPECTOR_MAX_W ? saved : 320
+  })
+  const startInspectorResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = inspectorWidth
+    let latest = startW
+    const onMove = (ev: MouseEvent): void => {
+      // 왼쪽 핸들을 왼쪽으로 끌수록 폭이 넓어진다(시작폭 - 이동량).
+      latest = Math.min(INSPECTOR_MAX_W, Math.max(INSPECTOR_MIN_W, startW - (ev.clientX - startX)))
+      setInspectorWidth(latest)
+    }
+    const onUp = (): void => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      try {
+        localStorage.setItem('harness.inspectorWidth', String(Math.round(latest)))
+      } catch {
+        // localStorage 불가 환경 — 폭 기억만 생략(기능엔 영향 없음)
+      }
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+  }, [inspectorWidth])
 
   // 노드는 useNodesState 로 관리해 드래그 이동이 적용·유지되도록 한다(onNodesChange 필수).
   // 모델/레벨/하이라이트/오버레이가 바뀌면 buildGraph 로 레이아웃을 다시 계산해 리셋한다.
@@ -224,12 +255,9 @@ export function FlowCanvas({ model, highlightPath, overlayEnabled = true, onSele
         </div>
       </div>
 
-      {/* 우측: Agent Inspector 패널 */}
+      {/* 우측: Agent Inspector 패널 (리사이즈 가능) */}
       {selectedAgent && (
-        <div
-          className="flex-shrink-0 border-l border-[color:var(--bg-border)] overflow-y-auto"
-          style={{ width: '260px', background: 'var(--bg-surface)' }}
-        >
+        <ResizableInspector width={inspectorWidth} onResizeStart={startInspectorResize}>
           <AgentInspector
             agent={selectedAgent}
             provenance={model.provenance}
@@ -237,22 +265,58 @@ export function FlowCanvas({ model, highlightPath, overlayEnabled = true, onSele
             gate={findGateForAgent(selectedAgent, model.controlFlow.gates)}
             onClose={() => setSelectedAgentId(null)}
           />
-        </div>
+        </ResizableInspector>
       )}
 
-      {/* 우측: Gate Inspector 패널 (에이전트 선택 없을 때) */}
+      {/* 우측: Gate Inspector 패널 (에이전트 선택 없을 때, 리사이즈 가능) */}
       {!selectedAgent && selectedGate && (
-        <div
-          className="flex-shrink-0 border-l border-[color:var(--bg-border)] overflow-y-auto"
-          style={{ width: '260px', background: 'var(--bg-surface)' }}
-        >
+        <ResizableInspector width={inspectorWidth} onResizeStart={startInspectorResize}>
           <GateInspector
             gate={selectedGate}
             sourcePath={model.meta.source}
             onClose={() => setSelectedGate(null)}
           />
-        </div>
+        </ResizableInspector>
       )}
+    </div>
+  )
+}
+
+/** 인스펙터 패널 폭 제약 (px) */
+const INSPECTOR_MIN_W = 240
+const INSPECTOR_MAX_W = 680
+
+/**
+ * 좌측 가장자리 드래그로 폭을 조절할 수 있는 인스펙터 래퍼.
+ * 핸들(col-resize)을 끌면 onResizeStart 가 document 레벨 드래그를 시작한다.
+ */
+function ResizableInspector({
+  width,
+  onResizeStart,
+  children
+}: {
+  width: number
+  onResizeStart: (e: React.MouseEvent) => void
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="flex-shrink-0 flex h-full" style={{ width: `${width}px` }}>
+      {/* 리사이즈 핸들 — 왼쪽 가장자리 */}
+      <div
+        onMouseDown={onResizeStart}
+        className="flex-shrink-0 w-1.5 cursor-col-resize hover:bg-[color:var(--clauday-blue)] transition-colors"
+        style={{ background: 'var(--bg-border)' }}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="인스펙터 패널 폭 조절"
+        title="드래그해서 패널 폭 조절"
+      />
+      <div
+        className="flex-1 min-w-0 border-l border-[color:var(--bg-border)] overflow-y-auto"
+        style={{ background: 'var(--bg-surface)' }}
+      >
+        {children}
+      </div>
     </div>
   )
 }
