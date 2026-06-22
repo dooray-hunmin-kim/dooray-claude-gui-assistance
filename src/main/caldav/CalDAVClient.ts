@@ -1,7 +1,43 @@
 import { createDAVClient } from 'tsdav'
+import { request as httpsRequest } from 'node:https'
 import { CalDAVCredentialStore } from './CredentialStore'
 import { CalendarObjectsStore } from './CalendarObjectsStore'
 import { parseICal, buildICal, patchDateTimeInIcs, patchEventFields } from './ical'
+
+/**
+ * Node:https 로 직접 요청 — undici(fetch) 가 PUT 본문을 chunked 로 보내 두레이 nginx 가
+ * 본문을 안 읽고 200/no-op 으로 응답하는 문제를 우회하기 위해 Content-Length 를 명시한다.
+ * (fetch 는 Content-Length 가 forbidden header 라 강제 못함 → 저수준 https 사용)
+ */
+function rawHttpsRequest(
+  method: string,
+  urlStr: string,
+  headers: Record<string, string>,
+  body?: string
+): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: string }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlStr)
+    const data = body !== undefined ? Buffer.from(body, 'utf-8') : undefined
+    const req = httpsRequest(
+      {
+        method,
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search, // %40 등 인코딩 그대로 보존
+        headers: { ...headers, ...(data ? { 'Content-Length': String(data.byteLength) } : {}) }
+      },
+      (res) => {
+        let buf = ''
+        res.setEncoding('utf-8')
+        res.on('data', (c) => { buf += c })
+        res.on('end', () => resolve({ status: res.statusCode || 0, headers: res.headers, body: buf }))
+      }
+    )
+    req.on('error', reject)
+    if (data) req.write(data)
+    req.end()
+  })
+}
 
 export interface SyncProgress {
   calendarUrl: string
@@ -528,44 +564,27 @@ export class CalDAVClient {
       }
     }
 
-    const doPut = async (label: string, withIfMatch: boolean): Promise<Response> => {
+    const doPut = async (label: string, withIfMatch: boolean): Promise<number> => {
       const headers: Record<string, string> = { Authorization: auth, 'Content-Type': 'text/calendar; charset=utf-8' }
       if (withIfMatch && input.etag) headers['If-Match'] = quoteEtag(input.etag)!
-      // redirect: 'manual' — 두레이가 PUT 을 30x 로 리다이렉트하면 fetch 가 GET 으로 따라가 본문이 유실될 수 있음.
-      const r = await fetch(absUrl, { method: 'PUT', headers, body: newIcs, redirect: 'manual' })
-      const loc = r.headers.get('location')
-      console.log(`[CalDAV PUT ${label}] status=`, r.status, 'redirected=', r.redirected, 'finalUrl=', r.url, 'location=', loc,
-        'etagHdr=', r.headers.get('etag'), 'allHeaders=', JSON.stringify(Object.fromEntries(r.headers.entries())))
-      // 30x 면 Location 으로 PUT 재전송 (메서드/본문 유지)
-      if ([301, 302, 303, 307, 308].includes(r.status) && loc) {
-        const next = loc.startsWith('http') ? loc : new URL(loc, absUrl).toString()
-        console.log(`[CalDAV PUT ${label}] following redirect → ${next}`)
-        return fetch(next, { method: 'PUT', headers, body: newIcs, redirect: 'manual' })
-      }
-      return r
+      const r = await rawHttpsRequest('PUT', absUrl, headers, newIcs)
+      console.log(`[CalDAV PUT ${label}] status=`, r.status, 'etagHdr=', r.headers['etag'], 'allHeaders=', JSON.stringify(r.headers))
+      return r.status
     }
 
-    console.log('[CalDAV PUT updateEvent] ifMatch=', input.etag ? quoteEtag(input.etag) : '(none)', 'bodyLen=', newIcs.length, 'url=', absUrl)
+    console.log('[CalDAV PUT updateEvent] ifMatch=', input.etag ? quoteEtag(input.etag) : '(none)', 'bodyLen=', Buffer.byteLength(newIcs, 'utf-8'), 'url=', absUrl)
     console.log('[CalDAV PUT updateEvent] BODY>>>\n' + newIcs.replace(/\r\n/g, '\n'))
 
-    // 1차: If-Match 포함 PUT
-    let resp = await doPut('A(if-match)', true)
-    if (resp.status >= 400) {
-      const b = await resp.text().catch(() => '')
-      throw new Error(`CalDAV PUT 실패: ${resp.status} ${b.slice(0, 300)}`)
-    }
+    // 1차: If-Match 포함 PUT (node:https, Content-Length 명시)
+    let status = await doPut('A(if-match)', true)
+    if (status >= 400) throw new Error(`CalDAV PUT 실패: ${status}`)
     let v = await verifyApplied('A')
 
-    // 2차 실험/보정: 안 먹었으면 If-Match 없이 다시 PUT (서버가 precondition 처리를 못해 무시하는 케이스 대응)
+    // 2차: 안 먹었으면 If-Match 없이 재시도
     if (!v.applied) {
       console.log('[CalDAV PUT updateEvent] A 미반영 → If-Match 없이 재시도(B)')
-      resp = await doPut('B(no-if-match)', false)
-      if (resp.status >= 400) {
-        const b = await resp.text().catch(() => '')
-        console.error('[CalDAV PUT updateEvent] B 실패:', resp.status, b.slice(0, 200))
-      } else {
-        v = await verifyApplied('B')
-      }
+      status = await doPut('B(no-if-match)', false)
+      if (status < 400) v = await verifyApplied('B')
     }
 
     if (!v.applied) {
