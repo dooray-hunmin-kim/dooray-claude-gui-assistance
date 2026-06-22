@@ -24,7 +24,7 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import type { Node, Edge, NodeMouseHandler } from '@xyflow/react'
-import type { HarnessModel, HarnessLevelId } from '@shared/types/harness'
+import type { HarnessModel, HarnessGate, HarnessLevelId } from '@shared/types/harness'
 import { buildGraph } from './buildGraph'
 import type { AgentNodeData, GateNodeData } from './buildGraph'
 import { getFlowTheme, getFlowCSSVarOverrides } from './flowTheme'
@@ -32,6 +32,8 @@ import AgentNode from './nodes/AgentNode'
 import GateNode from './nodes/GateNode'
 import HandoffEdge from './edges/HandoffEdge'
 import { AgentInspector } from '../inspector/AgentInspector'
+import { GateInspector } from '../inspector/GateInspector'
+import { findGateForAgent } from '../inspector/gateMatchUtils'
 import SegTabs from '@/components/common/ds/SegTabs'
 import type { SegTabItem } from '@/components/common/ds/SegTabs'
 import Chip from '@/components/common/ds/Chip'
@@ -101,6 +103,7 @@ export function FlowCanvas({ model, highlightPath, overlayEnabled = true, onSele
     defaultLevel as HarnessLevelId | null
   )
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
+  const [selectedGate, setSelectedGate] = useState<HarnessGate | null>(null)
 
   // 노드는 useNodesState 로 관리해 드래그 이동이 적용·유지되도록 한다(onNodesChange 필수).
   // 모델/레벨/하이라이트/오버레이가 바뀌면 buildGraph 로 레이아웃을 다시 계산해 리셋한다.
@@ -119,17 +122,28 @@ export function FlowCanvas({ model, highlightPath, overlayEnabled = true, onSele
       const nodeData = node.data as unknown as AgentNodeData | GateNodeData
       if (nodeData.type === 'agent') {
         setSelectedAgentId((nodeData as AgentNodeData).agentId)
+        setSelectedGate(null)
         onSelectAgent?.((nodeData as AgentNodeData).agentId)
-      } else {
+      } else if (nodeData.type === 'gate') {
+        // 게이트 노드 클릭: model.controlFlow.gates 에서 phase 로 찾아 선택
+        const gateData = nodeData as GateNodeData
+        const gate = model.controlFlow.gates.find((g) => g.phase === gateData.phase) ?? {
+          phase: gateData.phase,
+          ruleCodes: gateData.ruleCodes,
+          description: gateData.description,
+          blocking: gateData.blocking
+        }
+        setSelectedGate(gate)
         setSelectedAgentId(null)
       }
     },
-    [onSelectAgent]
+    [onSelectAgent, model.controlFlow.gates]
   )
 
   // 배경 클릭 시 선택 해제
   const handlePaneClick = useCallback(() => {
     setSelectedAgentId(null)
+    setSelectedGate(null)
   }, [])
 
   const selectedAgent = selectedAgentId
@@ -219,7 +233,23 @@ export function FlowCanvas({ model, highlightPath, overlayEnabled = true, onSele
           <AgentInspector
             agent={selectedAgent}
             provenance={model.provenance}
+            bundlePath={model.meta.source}
+            gate={findGateForAgent(selectedAgent, model.controlFlow.gates)}
             onClose={() => setSelectedAgentId(null)}
+          />
+        </div>
+      )}
+
+      {/* 우측: Gate Inspector 패널 (에이전트 선택 없을 때) */}
+      {!selectedAgent && selectedGate && (
+        <div
+          className="flex-shrink-0 border-l border-[color:var(--bg-border)] overflow-y-auto"
+          style={{ width: '260px', background: 'var(--bg-surface)' }}
+        >
+          <GateInspector
+            gate={selectedGate}
+            sourcePath={model.meta.source}
+            onClose={() => setSelectedGate(null)}
           />
         </div>
       )}

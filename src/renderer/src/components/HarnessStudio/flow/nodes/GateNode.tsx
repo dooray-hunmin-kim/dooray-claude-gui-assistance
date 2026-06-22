@@ -25,6 +25,7 @@ function GateNode({ data, selected }: NodeProps): JSX.Element {
 
   return (
     <div
+      title="클릭해 게이트 상세 보기"
       style={{
         opacity,
         background: bgVar,
@@ -34,6 +35,7 @@ function GateNode({ data, selected }: NodeProps): JSX.Element {
         padding: '5px 8px',
         minWidth: '100px',
         maxWidth: '160px',
+        cursor: 'pointer',
         transition: 'opacity 0.2s, box-shadow 0.15s'
       }}
     >

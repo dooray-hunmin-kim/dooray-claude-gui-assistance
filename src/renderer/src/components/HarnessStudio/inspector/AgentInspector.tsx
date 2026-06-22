@@ -11,8 +11,8 @@
  */
 
 import { useState, useCallback } from 'react'
-import { X, Wrench, FileInput, FileOutput, AlertTriangle, ArrowUpCircle, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
-import type { HarnessAgent, Provenance } from '@shared/types/harness'
+import { X, Wrench, FileInput, FileOutput, AlertTriangle, ArrowUpCircle, Sparkles, ChevronDown, ChevronRight, Lock, Unlock } from 'lucide-react'
+import type { HarnessAgent, HarnessGate, Provenance } from '@shared/types/harness'
 import { ProvenanceBadge } from '../shared/ProvenanceBadge'
 import { phaseTokens } from '../shared/PhaseColor'
 import Chip from '@/components/common/ds/Chip'
@@ -27,6 +27,11 @@ export interface AgentInspectorProps {
   onClose: () => void
   /** 번들 소스 경로 (explain 호출에 필요) */
   bundlePath?: string
+  /**
+   * 이 에이전트 단계에 대응하는 게이트.
+   * 있으면 "이 단계 게이트" 섹션을 표시한다.
+   */
+  gate?: HarnessGate
 }
 
 /** 모델명 → Chip tone 매핑 */
@@ -42,7 +47,7 @@ const MODEL_TONE: Record<string, 'neutral' | 'blue' | 'orange' | 'emerald' | 're
  *
  * FlowCanvas 와 형제로 export 되어 'flow' 탭 레이아웃 안에서 동작한다.
  */
-export function AgentInspector({ agent, provenance, onClose, bundlePath }: AgentInspectorProps): JSX.Element {
+export function AgentInspector({ agent, provenance, onClose, bundlePath, gate }: AgentInspectorProps): JSX.Element {
   const tokens = phaseTokens(agent.phaseClass)
   const [explainLoading, setExplainLoading] = useState(false)
   const [explainMarkdown, setExplainMarkdown] = useState<string | null>(null)
@@ -202,6 +207,43 @@ export function AgentInspector({ agent, provenance, onClose, bundlePath }: Agent
             <p className="text-[11px] text-[color:var(--text-secondary)] leading-snug">
               {agent.escalation}
             </p>
+          </Section>
+        )}
+
+        {/* 이 단계 게이트 */}
+        {gate && (
+          <Section
+            label="이 단계 게이트"
+            icon={
+              gate.blocking
+                ? <Lock size={10} style={{ color: 'var(--c-red-fg)' }} />
+                : <Unlock size={10} style={{ color: 'var(--c-emerald-fg)' }} />
+            }
+          >
+            <div className="flex flex-col gap-2">
+              {/* blocking 배지 */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {gate.blocking ? (
+                  <Chip tone="red" square>차단 (blocking)</Chip>
+                ) : (
+                  <Chip tone="emerald" square>경고만 (non-blocking)</Chip>
+                )}
+              </div>
+              {/* 규칙코드 칩 */}
+              {gate.ruleCodes.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {gate.ruleCodes.map((code) => (
+                    <Chip key={code} tone="violet" square>{code}</Chip>
+                  ))}
+                </div>
+              )}
+              {/* description 전문 */}
+              {gate.description && (
+                <p className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
+                  {gate.description}
+                </p>
+              )}
+            </div>
           </Section>
         )}
 
