@@ -81,6 +81,7 @@ describe('HarnessService', () => {
     mockAI = {
       normalizeHarness: vi.fn(),
       estimateLevel: vi.fn(),
+      explainHarness: vi.fn(),
     }
   })
 

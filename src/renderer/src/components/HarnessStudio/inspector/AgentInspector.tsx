@@ -5,10 +5,13 @@
  * 표시 항목: 모델/역할/도구(화이트리스트)/입출력(reads/writes)/에스컬레이션.
  * modelSource='ai' 이면 ProvenanceBadge 표시.
  *
+ * M8: "AI 설명" 버튼 — window.api.harness.explain 호출 후 markdown 표시.
+ *
  * PRD §7-1 에이전트 인스펙터 기능 요구사항 충족.
  */
 
-import { X, Wrench, FileInput, FileOutput, AlertTriangle, ArrowUpCircle } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { X, Wrench, FileInput, FileOutput, AlertTriangle, ArrowUpCircle, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
 import type { HarnessAgent, Provenance } from '@shared/types/harness'
 import { ProvenanceBadge } from '../shared/ProvenanceBadge'
 import { phaseTokens } from '../shared/PhaseColor'
@@ -22,6 +25,8 @@ export interface AgentInspectorProps {
   provenance: Provenance
   /** 닫기 버튼 콜백 */
   onClose: () => void
+  /** 번들 소스 경로 (explain 호출에 필요) */
+  bundlePath?: string
 }
 
 /** 모델명 → Chip tone 매핑 */
@@ -37,8 +42,36 @@ const MODEL_TONE: Record<string, 'neutral' | 'blue' | 'orange' | 'emerald' | 're
  *
  * FlowCanvas 와 형제로 export 되어 'flow' 탭 레이아웃 안에서 동작한다.
  */
-export function AgentInspector({ agent, provenance, onClose }: AgentInspectorProps): JSX.Element {
+export function AgentInspector({ agent, provenance, onClose, bundlePath }: AgentInspectorProps): JSX.Element {
   const tokens = phaseTokens(agent.phaseClass)
+  const [explainLoading, setExplainLoading] = useState(false)
+  const [explainMarkdown, setExplainMarkdown] = useState<string | null>(null)
+  const [explainError, setExplainError] = useState<string | null>(null)
+  const [explainExpanded, setExplainExpanded] = useState(false)
+
+  /** AI 설명 요청 — window.api.harness.explain optional chaining 처리 */
+  const handleExplain = useCallback(async () => {
+    if (!bundlePath) return
+    setExplainLoading(true)
+    setExplainError(null)
+    try {
+      const api = (window as unknown as { api?: { harness?: { explain?: (arg: { path: string; topic: string }) => Promise<{ markdown: string }> } } }).api
+      const result = await api?.harness?.explain?.({
+        path: bundlePath,
+        topic: `에이전트: ${agent.displayName} (${agent.id})`
+      })
+      if (result?.markdown) {
+        setExplainMarkdown(result.markdown)
+        setExplainExpanded(true)
+      } else {
+        setExplainError('AI 설명을 받지 못했습니다.')
+      }
+    } catch (e) {
+      setExplainError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExplainLoading(false)
+    }
+  }, [bundlePath, agent.displayName, agent.id])
 
   // provenance 에서 이 에이전트의 model 출처 확인
   const agentIdx = agent.id  // provenance 키는 "agents[N].model" 형식이므로 id 로 간접 탐색
@@ -183,6 +216,53 @@ export function AgentInspector({ agent, provenance, onClose }: AgentInspectorPro
           </Section>
         )}
 
+        {/* AI 설명 섹션 (M8) */}
+        {bundlePath && (
+          <Section
+            label="AI 설명"
+            icon={<Sparkles size={10} style={{ color: 'var(--clauday-blue)' }} />}
+          >
+            {!explainMarkdown && !explainError && (
+              <Button
+                variant="secondary"
+                size="xs"
+                leftIcon={<Sparkles size={10} />}
+                onClick={() => void handleExplain()}
+                disabled={explainLoading}
+              >
+                {explainLoading ? '설명 생성 중...' : 'AI 설명 생성'}
+              </Button>
+            )}
+
+            {explainError && (
+              <div className="flex flex-col gap-1">
+                <p className="text-[10px] text-[color:var(--c-red-fg)]">{explainError}</p>
+                <Button variant="ghost" size="xs" onClick={() => void handleExplain()}>
+                  재시도
+                </Button>
+              </div>
+            )}
+
+            {explainMarkdown && (
+              <div className="flex flex-col gap-1">
+                <button
+                  className="flex items-center gap-1 text-[color:var(--text-tertiary)] hover:text-[color:var(--text-secondary)] transition-colors"
+                  onClick={() => setExplainExpanded((v) => !v)}
+                  aria-expanded={explainExpanded}
+                >
+                  {explainExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  <span className="text-[10px]">{explainExpanded ? '접기' : '펼치기'}</span>
+                </button>
+                {explainExpanded && (
+                  <div className="text-[11px] text-[color:var(--text-secondary)] leading-relaxed whitespace-pre-wrap bg-[color:var(--bg-primary)] rounded-md p-2 border border-[color:var(--bg-border)] max-h-48 overflow-y-auto">
+                    {explainMarkdown}
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        )}
+
       </div>
     </div>
   )
@@ -223,7 +303,5 @@ function findProvenanceKey(
     (key) => key.endsWith(`.${fieldName}`) && key.includes(agentId)
   )
 }
-
-import type React from 'react'
 
 export default AgentInspector

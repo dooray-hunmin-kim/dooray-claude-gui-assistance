@@ -21,7 +21,7 @@
  * - highlightPath 가 비어있거나 undefined 이면 기존 dimmed 로직만 동작한다.
  */
 
-import type { HarnessModel, HarnessAgent, HarnessGate, HarnessLevelId } from '@shared/types/harness'
+import type { HarnessModel, HarnessAgent, HarnessGate, HarnessLevelId, HarnessModelName } from '@shared/types/harness'
 
 // ─────────────────────────────────────────────
 // 노드/엣지 데이터 타입 (react-flow 독립)
@@ -45,6 +45,16 @@ export interface AgentNodeData extends Record<string, unknown> {
    * highlightPath 가 없으면 항상 false.
    */
   highlighted: boolean
+  /**
+   * 오버레이에 의해 비활성화된 에이전트 여부 (M8).
+   * true 이면 노드 흐림 + 비활성 배지 표시.
+   */
+  overlayDisabled: boolean
+  /**
+   * 오버레이 모델 오버라이드 — 원본과 다를 때만 설정 (M8).
+   * 노드에 모델 변경 배지를 표시하는 데 사용한다.
+   */
+  originalModel?: HarnessModelName
 }
 
 export interface GateNodeData extends Record<string, unknown> {
@@ -214,12 +224,14 @@ function hasReturnLoop(model: HarnessModel): boolean {
  * @param model - 정규화된 HarnessModel
  * @param levelId - 활성화할 레벨 식별자
  * @param highlightPath - Dry-run 결과 에이전트 ID 배열 (M7, optional)
+ * @param overlayEnabled - 오버레이 반영 여부 (M8, optional, default true)
  * @returns react-flow 노드/엣지 배열
  */
 export function buildGraph(
   model: HarnessModel,
   levelId: HarnessLevelId | null,
-  highlightPath?: string[]
+  highlightPath?: string[],
+  overlayEnabled: boolean = true
 ): BuildGraphResult {
   // 빈 에이전트 체인 degradation
   if (model.agents.length === 0) {
@@ -229,7 +241,23 @@ export function buildGraph(
   const level = levelId ? model.levels.find((l) => l.id === levelId) ?? null : null
   const activeChain: string[] = level?.agentChain ?? []
   const parallelInChain = level?.parallelInChain ?? []
-  const activeChainSet = new Set(activeChain)
+
+  // ── 오버레이 반영 (M8) ──
+  // overlayEnabled=true 이고 model.overlay 가 있을 때 적용.
+  // - disabledAgents: activeChain 에서 제외 + dimmed 표시
+  // - modelOverrides: 해당 에이전트의 모델 배지를 오버라이드 값으로 표시
+  const overlay = overlayEnabled ? model.overlay : undefined
+  const overlayDisabledSet = new Set(overlay?.disabledAgents ?? [])
+  const overlayModelMap: Map<string, HarnessModelName> = new Map(
+    Object.entries(overlay?.modelOverrides ?? {}) as Array<[string, HarnessModelName]>
+  )
+
+  // disabledAgents 는 activeChain 에서 제외한다.
+  // 단, 노드로는 표시하되 overlayDisabled=true 로 마킹한다.
+  const effectiveActiveChain = overlayDisabledSet.size > 0
+    ? activeChain.filter((id) => !overlayDisabledSet.has(id))
+    : activeChain
+  const effectiveActiveChainSet = new Set(effectiveActiveChain)
 
   // ── 하이라이트 경로 집합 ──
 
@@ -242,16 +270,31 @@ export function buildGraph(
 
   // ── 노드 생성 ──
 
-  // 활성 체인에 속한 에이전트 먼저 배치, 나머지는 우측에 흐림으로 표시
-  const chainColMap = buildColumnMap(activeChain, parallelInChain)
-  const chainRowMap = buildRowMap(activeChain, parallelInChain)
+  // 컬럼/행 맵은 effectiveActiveChain 기준으로 계산 (오버레이 비활성 에이전트 제외)
+  const chainColMap = buildColumnMap(effectiveActiveChain, parallelInChain)
+  const chainRowMap = buildRowMap(effectiveActiveChain, parallelInChain)
 
   const nodes: GraphNode[] = []
 
-  // 활성 체인 에이전트
+  // 활성 체인 에이전트 (오버레이 비활성 에이전트 포함, 단 dimmed)
   for (const agentId of activeChain) {
-    const agent = model.agents.find((a) => a.id === agentId)
-    if (!agent) continue
+    const rawAgent = model.agents.find((a) => a.id === agentId)
+    if (!rawAgent) continue
+
+    // 오버레이 모델 오버라이드 적용
+    const overriddenModel = overlayModelMap.get(agentId)
+    const agent: HarnessAgent = overriddenModel && overriddenModel !== rawAgent.model
+      ? { ...rawAgent, model: overriddenModel }
+      : rawAgent
+
+    const isOverlayDisabled = overlayDisabledSet.has(agentId)
+
+    // 오버레이 비활성 에이전트는 효과적 체인에 없으므로
+    // 별도 컬럼(dimmedAgents 영역)에 배치하되 overlayDisabled=true
+    if (isOverlayDisabled) {
+      // 위치는 아래 dimmedAgents 처리 루프에서 배치됨 — 여기서는 skip
+      continue
+    }
 
     const col = chainColMap.get(agentId) ?? 0
     const row = chainRowMap.get(agentId) ?? 0
@@ -268,7 +311,7 @@ export function buildGraph(
         x: START_X + col * COL_WIDTH,
         y: START_Y + row * ROW_HEIGHT
       },
-      data: agentToNodeData(agent, dimmed, highlighted)
+      data: agentToNodeData(agent, dimmed, highlighted, false, overriddenModel ? rawAgent.model : undefined)
     })
   }
 
@@ -278,8 +321,8 @@ export function buildGraph(
   const gateInsertAfter = new Map<string, HarnessGate>()
 
   for (const gate of model.controlFlow.gates) {
-    // gate.phase 가 activeChain 에 포함된 에이전트 displayName 과 매핑
-    const matchedAgentId = activeChain.find((id) => {
+    // gate.phase 가 effectiveActiveChain 에 포함된 에이전트 displayName 과 매핑
+    const matchedAgentId = effectiveActiveChain.find((id) => {
       const agent = model.agents.find((a) => a.id === id)
       return agent && (agent.displayName === gate.phase || agent.id === gate.phase)
     })
@@ -312,14 +355,20 @@ export function buildGraph(
     })
   }
 
-  // 활성 체인에 없는 에이전트 (dimmed) — 우측 별도 컬럼에 배치
-  const dimmedAgents = model.agents.filter((a) => !activeChainSet.has(a.id))
-  const maxActiveCol = activeChain.length > 0
-    ? Math.max(...activeChain.map((id) => chainColMap.get(id) ?? 0))
+  // 활성 체인에 없는 에이전트 + 오버레이 비활성 에이전트 (dimmed) — 우측 별도 컬럼에 배치
+  const dimmedAgents = model.agents.filter((a) => !effectiveActiveChainSet.has(a.id))
+  const maxActiveCol = effectiveActiveChain.length > 0
+    ? Math.max(...effectiveActiveChain.map((id) => chainColMap.get(id) ?? 0))
     : -1
   const dimmedStartCol = maxActiveCol + 2
 
   dimmedAgents.forEach((agent, idx) => {
+    const isOverlayDisabled = overlayDisabledSet.has(agent.id)
+    const overriddenModel = overlayModelMap.get(agent.id)
+    const displayAgent: HarnessAgent = overriddenModel && overriddenModel !== agent.model
+      ? { ...agent, model: overriddenModel }
+      : agent
+
     nodes.push({
       id: agent.id,
       type: 'agentNode',
@@ -327,7 +376,13 @@ export function buildGraph(
         x: START_X + (dimmedStartCol + Math.floor(idx / 3)) * COL_WIDTH,
         y: START_Y + (idx % 3) * ROW_HEIGHT
       },
-      data: agentToNodeData(agent, true, false)
+      data: agentToNodeData(
+        displayAgent,
+        true,
+        false,
+        isOverlayDisabled,
+        overriddenModel ? agent.model : undefined
+      )
     })
   })
 
@@ -339,10 +394,10 @@ export function buildGraph(
   const artifactLabelMap = buildArtifactLabelMap(model)
   const hasReturn = hasReturnLoop(model)
 
-  // 활성 체인 순차 엣지
-  for (let i = 0; i < activeChain.length - 1; i++) {
-    const sourceId = activeChain[i]
-    const targetId = activeChain[i + 1]
+  // 활성 체인 순차 엣지 (effectiveActiveChain 기준)
+  for (let i = 0; i < effectiveActiveChain.length - 1; i++) {
+    const sourceId = effectiveActiveChain[i]
+    const targetId = effectiveActiveChain[i + 1]
 
     // 같은 병렬 그룹 내 에이전트끼리는 엣지 생성 안 함
     if (areSameParallelGroup(sourceId, targetId, parallelInChain)) continue
@@ -363,17 +418,17 @@ export function buildGraph(
   }
 
   // QA RETURN 루프 엣지
-  if (hasReturn && activeChain.length >= 2) {
+  if (hasReturn && effectiveActiveChain.length >= 2) {
     // qa 역할 에이전트 탐색
-    const qaAgentId = activeChain.find((id) => {
+    const qaAgentId = effectiveActiveChain.find((id) => {
       const agent = model.agents.find((a) => a.id === id)
       return agent && (agent.phaseClass === 'qa' || agent.displayName.toLowerCase().includes('qa'))
     })
 
     if (qaAgentId) {
       // 체인에서 qa 이전 dev 에이전트 탐색
-      const qaIdx = activeChain.indexOf(qaAgentId)
-      const devAgentId = activeChain
+      const qaIdx = effectiveActiveChain.indexOf(qaAgentId)
+      const devAgentId = effectiveActiveChain
         .slice(0, qaIdx)
         .reverse()
         .find((id) => {
@@ -401,8 +456,8 @@ export function buildGraph(
   // 게이트 엣지 (agent → gate → next agent)
   for (const [afterAgentId] of gateInsertAfter) {
     const gateId = `gate-${gateInsertAfter.get(afterAgentId)?.phase}`
-    const agentIdx = activeChain.indexOf(afterAgentId)
-    const nextAgentId = agentIdx >= 0 ? activeChain[agentIdx + 1] : null
+    const agentIdx = effectiveActiveChain.indexOf(afterAgentId)
+    const nextAgentId = agentIdx >= 0 ? effectiveActiveChain[agentIdx + 1] : null
 
     // agent → gate
     edges.push({
@@ -448,7 +503,13 @@ export function buildGraph(
 // 내부 헬퍼
 // ─────────────────────────────────────────────
 
-function agentToNodeData(agent: HarnessAgent, dimmed: boolean, highlighted: boolean): AgentNodeData {
+function agentToNodeData(
+  agent: HarnessAgent,
+  dimmed: boolean,
+  highlighted: boolean,
+  overlayDisabled: boolean = false,
+  originalModel?: HarnessModelName
+): AgentNodeData {
   return {
     type: 'agent',
     agentId: agent.id,
@@ -461,7 +522,9 @@ function agentToNodeData(agent: HarnessAgent, dimmed: boolean, highlighted: bool
     riskNote: agent.riskNote,
     escalation: agent.escalation,
     dimmed,
-    highlighted
+    highlighted,
+    overlayDisabled,
+    originalModel
   }
 }
 

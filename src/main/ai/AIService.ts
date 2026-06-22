@@ -1500,6 +1500,69 @@ ${useMcp ? `
     }
   }
 
+  /**
+   * 번들의 특정 토픽(에이전트/게이트/레벨/용어 등)에 대한 한국어 설명을 온디맨드로 생성한다.
+   *
+   * 사용자가 Harness Studio 에서 특정 노드 또는 용어를 클릭할 때 호출되며,
+   * HarnessModel 의 컨텍스트(번들 원문 또는 정규화 모델)를 바탕으로
+   * Sonnet 이 해당 토픽을 한국어 마크다운으로 설명한다.
+   *
+   * 캐시 필요 없음(온디맨드) — 동일 topic 재요청 시 재생성.
+   * 단, HarnessService 계층에서 필요에 따라 간단한 인메모리 캐시를 적용할 수 있다.
+   *
+   * Windows/Mac 플랫폼 분기는 runClaudeStream 내부에서 처리된다.
+   * 이 메서드는 args 구성 + pickModel + runClaudeStream 재사용만 담당한다 (CLAUDE.md 함정 #1·#3).
+   *
+   * @param rawContext - 번들 컨텍스트 요약 (agent 목록, gate 규칙 등 관련 섹션)
+   * @param topic - 설명 요청 토픽 (예: "architect 에이전트의 역할", "L2 레벨 규칙", "SIGNAL:ESCALATE")
+   * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @returns 한국어 마크다운 설명 문자열
+   */
+  async explainHarness(
+    rawContext: string,
+    topic: string,
+    requestId?: string
+  ): Promise<string> {
+    const model = this.pickModel('harnessExplain', 'sonnet')
+
+    const systemPrompt = `당신은 AI 에이전트 하니스(agentic harness/workflow) 전문 설명가입니다.
+사용자가 Harness Studio 에서 특정 개념/용어/에이전트/게이트/레벨을 클릭하면 그 내용을 한국어로 친절하게 설명합니다.
+
+규칙:
+- 응답은 **한국어 마크다운**으로만 작성.
+- 제목(##)으로 시작하고, 핵심 역할·제약·주의사항을 불릿/표로 정리.
+- 기술 용어(SIGNAL, gate, hook, triage 등)는 원어 그대로 쓰되 한국어 설명을 병기.
+- 250단어 이내로 간결하게. 번들 컨텍스트에 없는 내용을 지어내지 말 것.
+- JSON·코드블록 없이 순수 마크다운으로만 출력.`
+
+    const userPrompt = `[번들 컨텍스트]
+${rawContext}
+
+---
+
+[설명 요청 토픽]
+${topic}
+
+위 번들 컨텍스트를 바탕으로 요청 토픽을 한국어로 설명해 주세요.`
+
+    const args = buildArgs(userPrompt, {
+      model,
+      systemPrompt,
+      maxBudget: '0.2',
+      effort: 'low',
+      noTools: true  // 설명은 순수 텍스트 생성 — 도구 불필요
+    })
+
+    const result = await this.runWithProgress(
+      requestId,
+      `"${topic}" 설명 생성 중...`,
+      args,
+      { feature: 'harnessExplain' }
+    )
+
+    return (result.result || '').trim() || `"${topic}" 에 대한 설명을 생성하지 못했습니다.`
+  }
+
   private saveAIRecommendation(result: import('../../shared/types/ai-recommend').AIRecommendResult): void {
     try {
       writeFileSync(this.aiRecommendCachePath(), JSON.stringify(result, null, 2), 'utf-8')

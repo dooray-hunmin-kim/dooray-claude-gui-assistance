@@ -1688,6 +1688,22 @@ ${data}`,
       return getHarnessService().dryrun(args.path, args.taskText, args.requestId)
     }
   )
+
+  /**
+   * HARNESS_EXPLAIN — 번들 경로 + 토픽을 받아 온디맨드 한국어 설명 반환 (P3, Sonnet).
+   *
+   * 처리 흐름:
+   * 1. HarnessService.explain(path, topic, requestId) 위임.
+   * 2. normalize(path) 로 HarnessModel 획득 (캐시 hit 우선).
+   * 3. 모델 컨텍스트 요약 → AIService.explainHarness(Sonnet) 호출 → 마크다운 반환.
+   * 4. 진행률은 기존 AI_PROGRESS 채널 재사용 (requestId 로 구분).
+   */
+  ipcMain.handle(
+    IPC_CHANNELS.HARNESS_EXPLAIN,
+    async (_, args: { path: string; topic: string; requestId?: string }) => {
+      return getHarnessService().explain(args.path, args.topic, args.requestId)
+    }
+  )
 }
 
 /**

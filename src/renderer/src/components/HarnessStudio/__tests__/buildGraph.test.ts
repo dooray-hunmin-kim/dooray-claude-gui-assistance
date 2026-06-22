@@ -53,6 +53,7 @@ function makeModel(overrides?: Partial<HarnessModel>): HarnessModel {
       parallelGroups: [],
       loops: []
     },
+    overlay: overrides?.overlay,
     warnings: [],
     provenance: {}
   }
@@ -363,5 +364,78 @@ describe('buildGraph — L3 풀체인', () => {
     const ids = result.edges.map((e) => e.id)
     const uniqueIds = new Set(ids)
     expect(uniqueIds.size).toBe(ids.length)
+  })
+})
+
+// ─────────────────────────────────────────────
+// buildGraph — 오버레이 반영 (M8)
+// ─────────────────────────────────────────────
+
+describe('buildGraph — 오버레이 disabledAgents', () => {
+  const agents = [
+    makeAgent({ id: 'developer', displayName: 'developer', phaseClass: 'dev' }),
+    makeAgent({ id: 'qa', displayName: 'qa', phaseClass: 'qa' }),
+    makeAgent({ id: 'security', displayName: 'security', phaseClass: 'security' })
+  ]
+  const levels = [makeLevel('L2', ['developer', 'qa', 'security'])]
+  const overlay = {
+    domains: [],
+    modelOverrides: {},
+    disabledAgents: ['security']
+  }
+  const model = makeModel({ agents, levels, overlay })
+
+  it('disabledAgents 에이전트는 overlayDisabled=true 로 마킹된다', () => {
+    const result = buildGraph(model, 'L2', undefined, true)
+    const secNode = result.nodes.find((n) => n.id === 'security')
+    expect(secNode).toBeDefined()
+    expect((secNode!.data as AgentNodeData).overlayDisabled).toBe(true)
+  })
+
+  it('disabledAgents 에이전트는 활성 체인 엣지에서 제외된다', () => {
+    const result = buildGraph(model, 'L2', undefined, true)
+    // security 가 체인에 없으므로 qa→security 엣지 없어야 함
+    const edgeToSecurity = result.edges.find(
+      (e) => e.target === 'security' && !e.id.includes('gate')
+    )
+    expect(edgeToSecurity).toBeUndefined()
+  })
+
+  it('overlayEnabled=false 이면 disabledAgents 무시', () => {
+    const result = buildGraph(model, 'L2', undefined, false)
+    const secNode = result.nodes.find((n) => n.id === 'security')
+    expect((secNode!.data as AgentNodeData).overlayDisabled).toBe(false)
+  })
+})
+
+describe('buildGraph — 오버레이 modelOverrides', () => {
+  const agents = [
+    makeAgent({ id: 'developer', model: 'sonnet' }),
+    makeAgent({ id: 'qa', model: 'haiku' })
+  ]
+  const levels = [makeLevel('L1', ['developer', 'qa'])]
+  const overlay = {
+    domains: [],
+    modelOverrides: { developer: 'opus' as const },
+    disabledAgents: []
+  }
+  const model = makeModel({ agents, levels, overlay })
+
+  it('modelOverride 가 있는 에이전트는 오버라이드 model 로 노드 data 설정', () => {
+    const result = buildGraph(model, 'L1', undefined, true)
+    const devNode = result.nodes.find((n) => n.id === 'developer')
+    expect((devNode!.data as AgentNodeData).model).toBe('opus')
+  })
+
+  it('오버라이드 에이전트는 originalModel 이 원본 model 을 가진다', () => {
+    const result = buildGraph(model, 'L1', undefined, true)
+    const devNode = result.nodes.find((n) => n.id === 'developer')
+    expect((devNode!.data as AgentNodeData).originalModel).toBe('sonnet')
+  })
+
+  it('오버라이드 없는 에이전트는 originalModel 이 undefined', () => {
+    const result = buildGraph(model, 'L1', undefined, true)
+    const qaNode = result.nodes.find((n) => n.id === 'qa')
+    expect((qaNode!.data as AgentNodeData).originalModel).toBeUndefined()
   })
 })

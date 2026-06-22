@@ -716,7 +716,23 @@ const api = {
      * @returns DryRunResult
      */
     dryrun: (args: { path: string; taskText: string; requestId?: string }): Promise<DryRunResult> =>
-      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_DRYRUN, args)
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_DRYRUN, args),
+
+    /**
+     * 번들 경로 + 토픽을 받아 온디맨드 한국어 설명/용어번역을 반환한다 (P3, Sonnet).
+     *
+     * 처리 흐름:
+     * 1. normalize(path) 로 HarnessModel 획득 (캐시 hit 우선).
+     * 2. 모델 컨텍스트 요약 → AIService.explainHarness(Sonnet) 호출 → 마크다운 반환.
+     * requestId 를 지정하면 AI_PROGRESS 이벤트로 진행률을 받을 수 있다.
+     *
+     * @param args.path - 번들 루트 절대경로
+     * @param args.topic - 설명 요청 토픽 (예: "architect 에이전트 역할", "L2 레벨 진입 조건")
+     * @param args.requestId - 진행률 이벤트 구분 ID (optional)
+     * @returns { markdown: string }
+     */
+    explain: (args: { path: string; topic: string; requestId?: string }): Promise<{ markdown: string }> =>
+      ipcRenderer.invoke(IPC_CHANNELS.HARNESS_EXPLAIN, args)
   }
 }
 

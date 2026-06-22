@@ -30,7 +30,7 @@ import { detectBundleKind } from './bundleDetect'
 
 /**
  * HarnessService 가 사용하는 AIService 의 최소 인터페이스.
- * normalizeHarness + estimateLevel 두 메서드를 포함한다.
+ * normalizeHarness + estimateLevel + explainHarness 세 메서드를 포함한다.
  */
 export interface IAIServiceForHarness extends IAIServiceForNormalizer {
   estimateLevel(
@@ -38,6 +38,20 @@ export interface IAIServiceForHarness extends IAIServiceForNormalizer {
     triage: import('../../shared/types/harness').HarnessTriage,
     requestId?: string
   ): Promise<Pick<DryRunResult, 'level' | 'answers' | 'rationale'>>
+
+  /**
+   * 번들 컨텍스트와 토픽을 받아 한국어 마크다운 설명을 생성한다.
+   *
+   * @param rawContext - 번들 관련 컨텍스트 요약
+   * @param topic - 설명 요청 토픽
+   * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @returns 한국어 마크다운 설명 문자열
+   */
+  explainHarness(
+    rawContext: string,
+    topic: string,
+    requestId?: string
+  ): Promise<string>
 }
 
 // ─────────────────────────────────────────────
@@ -58,12 +72,15 @@ export class HarnessService {
   private readonly normalizer: HarnessNormalizer
   private readonly cache: HarnessCache
   private readonly estimator: DryRunEstimator
+  /** explainHarness 호출용으로 보관 (explain 메서드에서 직접 접근) */
+  private readonly aiService: IAIServiceForHarness
 
   /**
    * @param userDataPath - electron app.getPath('userData') 값
-   * @param aiService - AIService 인스턴스 (normalizeHarness + estimateLevel 포함)
+   * @param aiService - AIService 인스턴스 (normalizeHarness + estimateLevel + explainHarness 포함)
    */
   constructor(userDataPath: string, aiService: IAIServiceForHarness) {
+    this.aiService = aiService
     this.scanner = new BundleScanner()
     this.normalizer = new HarnessNormalizer(aiService)
     this.cache = new HarnessCache(userDataPath)
@@ -152,6 +169,87 @@ export class HarnessService {
   async dryrun(bundlePath: string, taskText: string, requestId?: string): Promise<DryRunResult> {
     const model = await this.normalize(bundlePath, false, requestId)
     return this.estimator.estimate(model, taskText, requestId)
+  }
+
+  // ─────────────────────────────────────────────
+  // explain — 온디맨드 설명/용어번역 (HARNESS_EXPLAIN)
+  // ─────────────────────────────────────────────
+
+  /**
+   * 번들 경로 + 토픽을 받아 온디맨드 한국어 설명을 반환한다.
+   *
+   * 처리 순서:
+   * 1. normalize(bundlePath) 로 HarnessModel 획득 (캐시 hit 우선, 정규화 없이 즉시).
+   * 2. HarnessModel 에서 토픽과 관련된 컨텍스트를 요약 구성.
+   * 3. AIService.explainHarness(rawContext, topic) 호출 → 마크다운 반환.
+   *
+   * 이 메서드는 캐시를 적용하지 않는다(온디맨드).
+   * bundlePath 가 정규화된 적 없으면 캐시 miss → normalize 도 실행된다.
+   *
+   * @param bundlePath - 번들 루트 절대경로
+   * @param topic - 설명 요청 토픽 (예: "architect 에이전트 역할", "L2 레벨 진입 조건")
+   * @param requestId - AI_PROGRESS 이벤트 구분 ID (선택)
+   * @returns { markdown: string }
+   */
+  async explain(
+    bundlePath: string,
+    topic: string,
+    requestId?: string
+  ): Promise<{ markdown: string }> {
+    // 1. 번들 모델 획득 (캐시 우선, 없으면 정규화)
+    const model = await this.normalize(bundlePath, false, requestId)
+
+    // 2. 토픽 관련 컨텍스트 요약 구성
+    //    번들 전체를 AI 에 주면 너무 크므로, 핵심 구조 정보만 요약해 전달한다.
+    const contextParts: string[] = [
+      `번들 이름: ${model.meta.name}`,
+      `번들 종류: ${model.meta.kind}`,
+    ]
+
+    if (model.agents.length > 0) {
+      const agentSummary = model.agents
+        .map((a) => `  - ${a.id} (${a.phaseClass ?? 'unknown'}): ${a.role ?? '역할 미정'}`)
+        .join('\n')
+      contextParts.push(`에이전트 목록 (${model.agents.length}개):\n${agentSummary}`)
+    }
+
+    if (model.levels.length > 0) {
+      const levelSummary = model.levels
+        .map((l) => `  - ${l.id} ${l.name}: 체인 [${l.agentChain.join(' → ')}]`)
+        .join('\n')
+      contextParts.push(`레벨 체인:\n${levelSummary}`)
+    }
+
+    if (model.triage.rules.length > 0) {
+      const ruleSummary = model.triage.rules
+        .map((r) => `  - when(${r.when}) → ${r.then}`)
+        .join('\n')
+      contextParts.push(`트리아지 규칙:\n${ruleSummary}`)
+    }
+
+    if (model.controlFlow.gates.length > 0) {
+      const gateSummary = model.controlFlow.gates
+        .map((g) => `  - 페이즈(${g.phase}): 규칙코드 [${g.ruleCodes.join(', ')}] 차단=${g.blocking}${g.description ? ' — ' + g.description : ''}`)
+        .join('\n')
+      contextParts.push(`게이트:\n${gateSummary}`)
+    }
+
+    if (model.controlFlow.hooks.length > 0) {
+      const hookSummary = model.controlFlow.hooks
+        .map((h) => `  - ${h.file}${h.event ? ' (' + h.event + ')' : ''}${h.enforces ? ': ' + h.enforces : ''}`)
+        .join('\n')
+      contextParts.push(`훅:\n${hookSummary}`)
+    }
+
+    if (model.warnings.length > 0) {
+      contextParts.push(`번들 경고: ${model.warnings.slice(0, 3).join('; ')}`)
+    }
+
+    const rawContext = contextParts.join('\n\n')
+
+    // 3. AI 설명 생성
+    const markdown = await this.aiService.explainHarness(rawContext, topic, requestId)
+    return { markdown }
   }
 
   // ─────────────────────────────────────────────

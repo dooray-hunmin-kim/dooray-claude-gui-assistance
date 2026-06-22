@@ -644,3 +644,119 @@ describe('AIService.estimateLevel — Mac/Windows 플랫폼 분기', () => {
     await promise
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Harness Studio — explainHarness
+// CLAUDE.md 함정 #2: Mac/Windows 양쪽 platform 분기 테스트 필수
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('AIService.explainHarness — Mac/Windows 플랫폼 분기', () => {
+  const CONTEXT = '번들: test-bundle\n에이전트: developer(dev)\n레벨: L1 체인 [dev]'
+  const TOPIC = 'architect 에이전트의 역할'
+
+  it('Mac — system prompt 가 --append-system-prompt 로 argv 에 포함된다 (캐싱 보존)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.explainHarness(CONTEXT, TOPIC)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--append-system-prompt')).toBeGreaterThanOrEqual(0)
+      emitResult('## architect 역할\n\n- 설계 담당\n- ADR 작성 책임')
+      const result = await promise
+      expect(result).toContain('architect')
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('Windows — system prompt 가 argv 에서 빠지고 stdin 에 합쳐진다 (cmd escape 회피)', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.explainHarness(CONTEXT, TOPIC)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      // Windows: --append-system-prompt 가 argv 에 없어야 함
+      expect(argv.indexOf('--append-system-prompt')).toBe(-1)
+      // stdin 에 시스템 지시 prefix 포함
+      const stdinCalls = (lastSpawn!.stdin.write as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      expect(stdinCalls.length).toBeGreaterThan(0)
+      const stdinText = stdinCalls[0][0] as string
+      expect(stdinText).toContain('[시스템 지시 — 반드시 준수]')
+      emitResult('## architect 역할\n\n- 설계 담당')
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('정상 응답 → 마크다운 문자열 반환', async () => {
+    const svc = new AIService()
+    const promise = svc.explainHarness(CONTEXT, TOPIC)
+    await Promise.resolve()
+    const EXPLAIN_MARKDOWN = '## architect 에이전트의 역할\n\n- **설계 담당**: 아키텍처 결정 및 ADR 작성\n- **escalation 조건**: 크기 초과 시 SM 반려'
+    emitResult(EXPLAIN_MARKDOWN)
+    const result = await promise
+    expect(result).toBe(EXPLAIN_MARKDOWN)
+  })
+
+  it('빈 응답 → 폴백 메시지 반환 (throw 금지)', async () => {
+    const svc = new AIService()
+    const promise = svc.explainHarness(CONTEXT, TOPIC)
+    await Promise.resolve()
+    emitResult('')
+    const result = await promise
+    expect(result).toContain(TOPIC)
+    expect(typeof result).toBe('string')
+  })
+
+  it('noTools 옵션 적용 — argv 에 --disallowedTools 포함', async () => {
+    const orig = process.platform
+    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+    try {
+      const svc = new AIService()
+      const promise = svc.explainHarness(CONTEXT, TOPIC)
+      await Promise.resolve()
+      const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+      const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+      expect(argv.indexOf('--disallowedTools')).toBeGreaterThanOrEqual(0)
+      emitResult('## 설명')
+      await promise
+    } finally {
+      Object.defineProperty(process, 'platform', { value: orig, configurable: true })
+    }
+  })
+
+  it('harnessExplain 모델 설정이 적용된다 — opus 로 변경', async () => {
+    const svc = new AIService()
+    svc.setModelConfig({ harnessExplain: 'opus' } as never)
+    const promise = svc.explainHarness(CONTEXT, TOPIC)
+    await Promise.resolve()
+    const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+    const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+    const mIdx = argv.indexOf('--model')
+    expect(mIdx).toBeGreaterThanOrEqual(0)
+    expect(argv[mIdx + 1]).toBe('opus')
+    emitResult('## 설명')
+    await promise
+  })
+
+  it('기본 모델은 sonnet', async () => {
+    const svc = new AIService()
+    // harnessExplain 미설정 시 기본값 sonnet
+    const promise = svc.explainHarness(CONTEXT, TOPIC)
+    await Promise.resolve()
+    const cp = (await import('child_process')).spawn as unknown as { mock: { calls: unknown[][] } }
+    const argv = cp.mock.calls[cp.mock.calls.length - 1][1] as string[]
+    const mIdx = argv.indexOf('--model')
+    expect(mIdx).toBeGreaterThanOrEqual(0)
+    expect(argv[mIdx + 1]).toBe('sonnet')
+    emitResult('## 설명')
+    await promise
+  })
+})

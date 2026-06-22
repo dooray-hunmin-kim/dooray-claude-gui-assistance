@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Workflow, Plus, History, Clock, RotateCcw } from 'lucide-react'
+import { Workflow, Plus, History, Clock, RotateCcw, Download, Stethoscope, GitCompare } from 'lucide-react'
 import type { HarnessModel, CachedHarnessEntry } from '@shared/types/harness'
 import Button from '@/components/common/ds/Button'
 import Chip from '@/components/common/ds/Chip'
@@ -14,13 +14,16 @@ import { GatesPanel } from './views/GatesPanel'
 import { ArtifactsPanel } from './views/ArtifactsPanel'
 import { ScorePanel } from './views/ScorePanel'
 import { DryRunPanel } from './views/DryRunPanel'
+import { DoctorPanel } from './views/DoctorPanel'
+import { CompareView } from './views/CompareView'
+import { downloadHtmlReport } from './export/exportHtml'
 
 interface HarnessStudioViewProps {
   active?: boolean
 }
 
-/** Harness Studio 6뷰 탭 식별자 */
-type StudioTab = 'flow' | 'dryrun' | 'skills' | 'gates' | 'artifacts' | 'score'
+/** Harness Studio 탭 식별자 (M8: doctor, compare 추가) */
+type StudioTab = 'flow' | 'dryrun' | 'skills' | 'gates' | 'artifacts' | 'score' | 'doctor' | 'compare'
 
 const STUDIO_TABS: SegTabItem<StudioTab>[] = [
   { key: 'flow',      label: 'Flow Canvas' },
@@ -28,18 +31,10 @@ const STUDIO_TABS: SegTabItem<StudioTab>[] = [
   { key: 'skills',    label: 'Skills/Blocks' },
   { key: 'gates',     label: 'Gates' },
   { key: 'artifacts', label: 'Artifacts' },
-  { key: 'score',     label: 'Score' }
+  { key: 'score',     label: 'Score' },
+  { key: 'doctor',    label: 'Doctor' },
+  { key: 'compare',   label: 'Compare' }
 ]
-
-/** M5/M6 에서 각 탭 컴포넌트가 채울 곳 */
-const TAB_PLACEHOLDER_LABELS: Record<StudioTab, string> = {
-  flow:      'Flow Canvas (M5 — @xyflow/react 그래프)',
-  dryrun:    'Dry-run 미리보기 (후속)',
-  skills:    'Skills & Blocks 해부 (M6)',
-  gates:     'Gates & 강제 (M6)',
-  artifacts: '산출물 트리 (M6)',
-  score:     '6축 레이더 점수 (M6)'
-}
 
 /**
  * Harness Studio 진입점 뷰.
@@ -216,6 +211,33 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
           <Button
             variant="ghost"
             size="xs"
+            leftIcon={<Stethoscope size={11} />}
+            onClick={() => setActiveTab('doctor')}
+            title="Doctor 점검"
+          >
+            Doctor
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            leftIcon={<GitCompare size={11} />}
+            onClick={() => setActiveTab('compare')}
+            title="다른 하니스와 비교"
+          >
+            Compare
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            leftIcon={<Download size={11} />}
+            onClick={() => downloadHtmlReport(model)}
+            title="HTML 리포트 다운로드"
+          >
+            Export
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
             leftIcon={<RotateCcw size={11} />}
             onClick={handleReset}
             title="다른 하니스 가져오기"
@@ -250,6 +272,7 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
           highlightPath={dryRunHighlight}
           onHighlight={setDryRunHighlight}
           onGoToFlow={() => setActiveTab('flow')}
+          cachedList={cachedList ?? []}
         />
       </div>
     </div>
@@ -260,21 +283,24 @@ export default function HarnessStudioView({ active: _active = true }: HarnessStu
  * 활성 탭에 해당하는 뷰 본체를 렌더한다.
  *
  * - flow: @xyflow/react 그래프(자체 높이 채움) — 스크롤 컨테이너로 감싸지 않는다.
- * - skills/gates/artifacts/score: 정적 패널(자체 스크롤).
- * - dryrun: M7 미구현 — placeholder.
+ * - skills/gates/artifacts/score/doctor: 정적 패널(자체 스크롤).
+ * - compare: 캐시 목록을 받아 diff 표 표시.
+ * - dryrun: 레벨 추정 패널.
  */
 function TabContent({
   tab,
   model,
   highlightPath,
   onHighlight,
-  onGoToFlow
+  onGoToFlow,
+  cachedList
 }: {
   tab: StudioTab
   model: HarnessModel
   highlightPath?: string[]
   onHighlight?: (path: string[]) => void
   onGoToFlow?: () => void
+  cachedList: CachedHarnessEntry[]
 }): JSX.Element {
   switch (tab) {
     case 'flow':
@@ -297,6 +323,10 @@ function TabContent({
       return <div className="w-full h-full overflow-y-auto"><ArtifactsPanel model={model} /></div>
     case 'score':
       return <div className="w-full h-full overflow-y-auto"><ScorePanel model={model} /></div>
+    case 'doctor':
+      return <div className="w-full h-full overflow-y-auto"><DoctorPanel model={model} /></div>
+    case 'compare':
+      return <div className="w-full h-full overflow-y-auto"><CompareView model={model} cachedList={cachedList} /></div>
     default:
       return (
         <div className="w-full h-full flex items-center justify-center">
@@ -339,14 +369,14 @@ function CachedEntryCard({
   )
 }
 
-/** M5/M6 에서 채울 탭 본체 placeholder */
-function TabPlaceholder({ tab, model }: { tab: StudioTab; model: HarnessModel }): JSX.Element {
+/** 미구현 탭 placeholder */
+function TabPlaceholder({ tab: _tab, model }: { tab: StudioTab; model: HarnessModel }): JSX.Element {
   return (
     <div className="flex flex-col items-center gap-3 text-center px-6">
       <Workflow size={24} className="text-[color:var(--text-tertiary)]" />
       <div>
         <p className="text-sm font-semibold text-[color:var(--text-secondary)]">
-          {TAB_PLACEHOLDER_LABELS[tab]}
+          준비 중입니다
         </p>
         <p className="text-xs text-[color:var(--text-tertiary)] mt-0.5">
           현재 모델: <span className="font-mono">{model.meta.name}</span> ·

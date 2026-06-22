@@ -104,4 +104,10 @@ export interface AIModelConfig {
    * 기본값: 'haiku' — 짧은 추정 태스크라 Haiku 가 비용·속도 면에서 적합.
    */
   harnessEstimate?: AIModelName
+  /**
+   * Harness Studio — 온디맨드 설명/용어번역 모델.
+   * 특정 토픽(에이전트/게이트/레벨/용어)에 대한 한국어 마크다운 설명 반환 시 사용 (HARNESS_EXPLAIN).
+   * 기본값: 'sonnet' — 설명 품질과 비용의 균형상 Sonnet 이 적합.
+   */
+  harnessExplain?: AIModelName
 }
