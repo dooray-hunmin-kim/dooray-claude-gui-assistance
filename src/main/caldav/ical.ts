@@ -232,6 +232,20 @@ export function stripIcsPrefix(ics: string): string {
 }
 
 /**
+ * VCALENDAR 레벨의 METHOD 속성을 제거한다.
+ * Why: RFC 4791 §4.1 — CalDAV 캘린더 객체 리소스는 iCalendar METHOD 속성을 가지면 안 된다.
+ * 두레이가 export 한 원본 ICS 에는 METHOD:PUBLISH 가 들어있는데, 이를 그대로 PUT 하면
+ * 서버가 "스케줄링 메시지(iTIP)"로 보고 캘린더 객체 갱신을 거부/무시(200 no-op)한다.
+ * (BEGIN:VEVENT 이전 구간의 METHOD 라인만 제거 — VEVENT 내부엔 METHOD 없음)
+ */
+export function stripMethodProp(ics: string): string {
+  const v = ics.indexOf('BEGIN:VEVENT')
+  if (v < 0) return ics.replace(/^METHOD:[^\r\n]*\r?\n/m, '')
+  const head = ics.slice(0, v).replace(/^METHOD:[^\r\n]*\r?\n/m, '')
+  return head + ics.slice(v)
+}
+
+/**
  * VEVENT 블록 구간 [start, end) 를 찾는다. start 는 'BEGIN:VEVENT' 라인 시작 인덱스,
  * end 는 'END:VEVENT' 인덱스(미포함). 없으면 null.
  * Why: ICS 에는 VTIMEZONE 에도 DTSTART 가 있어, 전체 문자열에서 교체하면 VTIMEZONE 의 DTSTART 를
@@ -315,7 +329,7 @@ export function patchDateTimeInIcs(ics: string, input: { start: string; end: str
   const dtendLine = allDay ? `DTEND;VALUE=DATE:${fmtDate(input.end, 1)}` : `DTEND:${fmtTimedUtc(input.end)}`
   const dtstampLine = `DTSTAMP:${fmtTimedUtc(new Date().toISOString())}`
 
-  let out = stripIcsPrefix(ics)
+  let out = stripMethodProp(stripIcsPrefix(ics))
   out = replaceInEvent(out, 'DTSTART', dtstartLine)
   out = replaceInEvent(out, 'DTEND', dtendLine)
   out = replaceInEvent(out, 'DTSTAMP', dtstampLine)
@@ -339,7 +353,8 @@ export function patchEventFields(
   const dtendLine = allDay ? `DTEND;VALUE=DATE:${fmtDate(input.end, 1)}` : `DTEND:${fmtTimedUtc(input.end)}`
   const dtstampLine = `DTSTAMP:${fmtTimedUtc(new Date().toISOString())}`
 
-  let out = stripIcsPrefix(ics)
+  // METHOD:PUBLISH 제거(RFC 4791) + XML 잔재 제거 후 VEVENT 필드 교체.
+  let out = stripMethodProp(stripIcsPrefix(ics))
   out = replaceInEvent(out, 'DTSTART', dtstartLine)
   out = replaceInEvent(out, 'DTEND', dtendLine)
   out = replaceInEvent(out, 'DTSTAMP', dtstampLine)

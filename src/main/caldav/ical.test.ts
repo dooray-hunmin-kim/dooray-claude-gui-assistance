@@ -58,6 +58,18 @@ describe('stripIcsPrefix — BEGIN:VCALENDAR 앞 XML 쓰레기 제거', () => {
     expect(out).toMatch(/^LAST-MODIFIED:\d{8}T\d{6}Z/m)
   })
 
+  it('VCALENDAR METHOD:PUBLISH 를 제거한다 (RFC 4791 — CalDAV PUT 무시 원인)', () => {
+    const ics = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'METHOD:PUBLISH', 'CALSCALE:GREGORIAN',
+      'BEGIN:VEVENT', 'UID:e', 'DTSTART:20260619T013000Z', 'DTEND:20260619T023000Z',
+      'SUMMARY:OLD', 'END:VEVENT', 'END:VCALENDAR'
+    ].join('\r\n')
+    const out = patchEventFields(ics, { summary: 'NEW', start: '2026-06-19T01:30:00Z', end: '2026-06-19T02:30:00Z', allDay: false })
+    expect(out).not.toContain('METHOD:PUBLISH')
+    expect(out).toContain('SUMMARY:NEW')
+    expect(out).toContain('CALSCALE:GREGORIAN')
+  })
+
   it('SEQUENCE 가 없으면 1 로 추가한다', () => {
     const ics = [
       'BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'UID:e', 'DTSTART:20260619T013000Z',
